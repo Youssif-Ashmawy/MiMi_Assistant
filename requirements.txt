@@ -1,0 +1,19 @@
+# Voice Recognition
+speechrecognition
+pyaudio
+openai-whisper
+
+# Computer Vision & Gesture Recognition
+opencv-python
+mediapipe
+numpy
+
+# System Actions
+pyautogui
+pillow
+
+# Audio Processing
+pydub
+
+# Utilities
+colorama
