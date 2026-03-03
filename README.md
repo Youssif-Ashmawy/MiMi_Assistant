@@ -19,14 +19,14 @@ A real-time gesture recognition assistant that activates with voice commands and
 MiMi_Assistant/
 ├── src/
 │   ├── voice/           # Voice recognition and activation
-│   ├── camera/          # Camera capture and processing
-│   ├── gestures/        # Gesture recognition logic
-│   ├── actions/         # System action implementations
-│   ├── utils/           # Utility functions
+│   ├── camera/          # Camera capture and processing ~ TO DO
+│   ├── gestures/        # Gesture recognition logic ~ TO DO
+│   ├── actions/         # System action implementations ~ TO DO
+│   ├── utils/           # Utility functions ~ TO DO
 │   └── main.py          # Main application entry point
 ├── config/
 │   └── app_config.yaml  # This should be created to ease the modification of any paramater across the application ~ TO DO
-├── tests/               # Test files
+├── tests/               # Test files ~ TO DO
 └── requirements.txt     # Python dependencies
 ```
 
