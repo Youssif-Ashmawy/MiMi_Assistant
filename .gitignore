@@ -1,0 +1,4 @@
+src/voice/__pycache__/
+*.pyc
+venv/
+
