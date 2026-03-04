@@ -4,8 +4,8 @@ A real-time gesture recognition assistant that activates with voice commands and
 
 ## Features
 
-- **Local Voice Activation**: Uses OpenAI's Whisper model for high-accuracy offline speech recognition
-- **Wake Word Detection**: Activated by saying "Hi MiMi" with flexible matching
+- **Local Voice Activation**: Uses openWakeWord for ultra-fast offline wake word detection
+- **Wake Word Detection**: Activated by saying "Hey Mycroft" with high accuracy
 - **Real-time Gesture Recognition**: Uses camera to detect hand gestures
 - **System Actions Examples**:
   - Fist pump for 3 seconds → Take screenshot
@@ -19,13 +19,15 @@ A real-time gesture recognition assistant that activates with voice commands and
 MiMi_Assistant/
 ├── src/
 │   ├── voice/           # Voice recognition and activation
+│   │   ├── openwakeword_activator.py     # Fast openWakeWord-based activator (CURRENT)
+│   │   └── whisper_voice_activator.py    # Initial Whisper-based activator (Old but kept for reference)
 │   ├── camera/          # Camera capture and processing ~ TO DO
 │   ├── gestures/        # Gesture recognition logic ~ TO DO
 │   ├── actions/         # System action implementations ~ TO DO
 │   ├── utils/           # Utility functions ~ TO DO
 │   └── main.py          # Main application entry point
 ├── config/
-│   └── app_config.yaml  # This should be created to ease the modification of any paramater across the application ~ TO DO
+│   └── app_config.yaml  # This should be created to ease the modification of any parameter across the application ~ TO DO
 ├── tests/               # Test files ~ TO DO
 └── requirements.txt     # Python dependencies
 ```
@@ -56,7 +58,7 @@ MiMi_Assistant/
    python main.py
    ```
 
-**Note**: The first run will download the Whisper model (~39MB) for local speech recognition. After this initial download, the application works completely offline.
+**Note**: The first run will download openWakeWord models (~60MB) for local wake word detection. After this initial download, the application works completely offline with ultra-fast response times.
 
 ## Usage
 
@@ -69,11 +71,11 @@ MiMi_Assistant/
 
 2. The application will:
    - Test your microphone
-   - Load the Whisper model (first run only)
+   - Load openWakeWord models (first run only)
    - Start listening for the wake word
 
-3. Say "Hi MiMi" to activate the assistant
-   - The system uses flexible matching and will respond to similar phrases
+3. Say "Hey Mycroft" to activate the assistant
+   - The system uses openWakeWord for fast wake word detection
    - Debug output shows what was heard
 
 4. The camera will open and start listening for gestures
@@ -88,8 +90,8 @@ MiMi_Assistant/
 The project is organized into modular components:
 
 ### Voice Recognition
-- **Primary**: OpenAI's Whisper for high-accuracy offline speech recognition
-- **Features**: Flexible wake word detection, debug output, microphone selection
+- **Primary**: openWakeWord for ultra-fast wake word detection
+- **Features**: 80ms response time, high accuracy, minimal CPU usage
 
 ### Next Phases
 - Camera and gesture recognition implementation

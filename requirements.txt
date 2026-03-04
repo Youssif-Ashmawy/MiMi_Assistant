@@ -1,40 +1,21 @@
-# Voice Recognition
-speechrecognition
+# Voice Recognition (Currently Active)
+openwakeword
 pyaudio
-openai-whisper
-
-# Computer Vision & Gesture Recognition
-opencv-python
-mediapipe
 numpy
-
-# System Actions
-pyautogui
-pillow
-
-# Audio Processing
-pydub
-
-# Configuration & Utilities
-pyyaml
 colorama
 
-# Voice Recognition
-speechrecognition
-pyaudio
-openai-whisper
+## Just as a note for me ##
 
-# Computer Vision & Gesture Recognition
-opencv-python
-mediapipe
-numpy
+# Computer Vision & Gesture Recognition (Future Implementation)
+# opencv-python
+# mediapipe
 
-# System Actions
-pyautogui
-pillow
+# System Actions (Future Implementation)  
+# pyautogui
+# pillow
 
-# Audio Processing
-pydub
+# Audio Processing (Future Implementation)
+# pydub
 
-# Utilities
-colorama
+# Configuration & Utilities (Future Implementation)
+# pyyaml

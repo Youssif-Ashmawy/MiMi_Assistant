@@ -13,7 +13,7 @@ from colorama import Fore, Style, init
 # Add src directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from voice.whisper_voice_activator import WhisperVoiceActivator
+from voice.openwakeword_activator import OpenWakeWordActivator
 
 # Initialize colorama for cross-platform colored output
 init()
@@ -21,7 +21,7 @@ init()
 class MiMiAssistant:
     def __init__(self):
         self.running = False
-        self.voice_activator = WhisperVoiceActivator()
+        self.voice_activator = OpenWakeWordActivator()
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -58,7 +58,7 @@ class MiMiAssistant:
         
         self.running = True
         print(f"{Fore.GREEN}✅ MiMi Assistant is running!{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}Say 'Hi MiMi' to activate the assistant.{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}Say 'Hey Mycroft' to activate the assistant.{Style.RESET_ALL}")
         print(f"{Fore.YELLOW}Press Ctrl+C to stop.{Style.RESET_ALL}")
         
         # Keep the main thread alive
