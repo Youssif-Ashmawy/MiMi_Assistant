@@ -147,14 +147,42 @@ class OpenWakeWordActivator:
     def test_microphone(self):
         """Test microphone access and audio levels"""
         try:
-            stream = self.audio.open(
-                format=self.format,
-                channels=self.channels,
-                rate=self.rate,
-                input=True,
-                input_device_index=self.microphone_index,
-                frames_per_buffer=self.chunk_size
-            )
+            # Try to get available devices first
+            import pyaudio
+            audio = pyaudio.PyAudio()
+            
+            device_count = audio.get_device_count()
+            print(f"Found {device_count} audio devices:")
+            
+            for i in range(device_count):
+                device_info = audio.get_device_info_by_index(i)
+                print(f"  {i}: {device_info['name']}")
+            
+            # Try to open default device
+            try:
+                stream = self.audio.open(
+                    format=self.format,
+                    channels=self.channels,
+                    rate=self.rate,
+                    input=True,
+                    input_device_index=None,  # Use default device
+                    frames_per_buffer=self.chunk_size
+                )
+            except Exception as e:
+                print(f"Error opening default device: {e}")
+                # Try first available device
+                try:
+                    stream = self.audio.open(
+                        format=self.format,
+                        channels=self.channels,
+                        rate=self.rate,
+                        input=True,
+                        input_device_index=0,  # Try first device
+                        frames_per_buffer=self.chunk_size
+                    )
+                except Exception as e2:
+                    print(f"Error opening device 0: {e2}")
+                    return False
             
             print("Testing microphone with openWakeWord...")
             for i in range(5):
@@ -176,7 +204,9 @@ class OpenWakeWordActivator:
             return True
             
         except Exception as e:
-            print(f"Microphone test failed: {e}")
+            print(f"{Fore.RED}Microphone test failed: {e}{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}This might be a macOS audio permissions issue.{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Try: System Preferences > Security & Privacy > Microphone{Style.RESET_ALL}")
             return False
     
     def cleanup(self):

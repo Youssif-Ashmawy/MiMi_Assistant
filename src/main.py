@@ -8,6 +8,7 @@ import sys
 import os
 import time
 import signal
+import subprocess
 from colorama import Fore, Style, init
 
 # Add src directory to Python path
@@ -22,6 +23,7 @@ class MiMiAssistant:
     def __init__(self):
         self.running = False
         self.voice_activator = OpenWakeWordActivator()
+        self.camera_process = None
         
         # Setup signal handlers for graceful shutdown
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -35,11 +37,34 @@ class MiMiAssistant:
     def on_voice_activation(self):
         """Callback when voice activation is detected"""
         print(f"{Fore.GREEN}🎤 MiMi Assistant Activated!{Style.RESET_ALL}")
-        print(f"{Fore.CYAN}📷 Opening camera for gesture recognition...{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}📷 Starting simple camera test...{Style.RESET_ALL}")
         
-        # TODO: Implement camera and gesture recognition
-        # This will be implemented in the next phase
-        print(f"{Fore.YELLOW}Camera and gesture recognition coming soon!{Style.RESET_ALL}")
+        # Check if camera is already running
+        if self.camera_process and self.camera_process.poll() is None:
+            print(f"{Fore.YELLOW}Camera is already running!{Style.RESET_ALL}")
+            return
+        
+        try:
+            # Get the path to cameratest.py
+            camera_script = os.path.join(os.path.dirname(__file__), 'camera', 'cameratest.py')
+            
+            if not os.path.exists(camera_script):
+                print(f"{Fore.RED}Camera test script not found: {camera_script}{Style.RESET_ALL}")
+                return
+            
+            # Start the camera test script
+            self.camera_process = subprocess.Popen(
+                [sys.executable, camera_script],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            print(f"{Fore.GREEN}✅ Simple camera test started!{Style.RESET_ALL}")
+            print(f"{Fore.YELLOW}Camera will run until you say 'Hey Mycroft' again or press Ctrl+C{Style.RESET_ALL}")
+            
+        except Exception as e:
+            print(f"{Fore.RED}Error starting camera test: {e}{Style.RESET_ALL}")
     
     def start(self):
         """Start the MiMi Assistant"""
@@ -73,6 +98,13 @@ class MiMiAssistant:
         self.running = False
         if self.voice_activator:
             self.voice_activator.stop_listening()
+        
+        # Stop camera process if running
+        if self.camera_process and self.camera_process.poll() is None:
+            print(f"{Fore.YELLOW}Stopping camera test...{Style.RESET_ALL}")
+            self.camera_process.terminate()
+            self.camera_process.wait(timeout=5)
+        
         print(f"{Fore.GREEN}👋 MiMi Assistant stopped.{Style.RESET_ALL}")
 
 def main():
