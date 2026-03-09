@@ -3,12 +3,10 @@ openwakeword
 pyaudio
 numpy
 colorama
+opencv-python
+mediapipe
 
 ## Just as a note for me ##
-
-# Computer Vision & Gesture Recognition (Future Implementation)
-# opencv-python
-# mediapipe
 
 # System Actions (Future Implementation)  
 # pyautogui
