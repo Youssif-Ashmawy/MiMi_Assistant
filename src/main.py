@@ -46,7 +46,7 @@ class MiMiAssistant:
         
         try:
             # Get the path to cameratest.py
-            camera_script = os.path.join(os.path.dirname(__file__), 'camera', 'cameratest.py')
+            camera_script = os.path.join(os.path.dirname(__file__), 'camera', 'camera_app.py')
             
             if not os.path.exists(camera_script):
                 print(f"{Fore.RED}Camera test script not found: {camera_script}{Style.RESET_ALL}")
