@@ -3,6 +3,12 @@ import mediapipe as mp
 import numpy as np
 from collections import deque
 import time
+import sys
+import os
+
+# Add src directory to Python path for imports
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from actions.system_operations import SystemOperations
 
 # Initialize MediaPipe Gesture Recognizer
 BaseOptions = mp.tasks.BaseOptions
@@ -28,6 +34,10 @@ recognizer = GestureRecognizer.create_from_options(options)
 hand_positions = [deque(maxlen=20) for _ in range(2)]  # Track positions for 2 hands as (t, x)
 last_wave_time = [0.0 for _ in range(2)]
 wave_cooldown_s = 1.0
+
+# System operation cooldown to prevent multiple rapid triggers
+last_lock_time = 0.0
+lock_cooldown_s = 5.0  # 5 seconds between lock attempts
 
 wave_window_s = 0.9
 min_wave_amplitude = 0.12  # peak-to-peak normalized wrist-x movement required
@@ -106,11 +116,56 @@ def detect_waving(hand_landmarks, hand_idx, now_s):
 
 def trigger_waving_action(hand_idx):
     """Execute action when waving is detected"""
+    global last_lock_time
+    
+    current_time = time.time()
+    
+    # Check if we're still in cooldown period
+    if current_time - last_lock_time < lock_cooldown_s:
+        remaining_time = lock_cooldown_s - (current_time - last_lock_time)
+        print(f"Waving detected from hand {hand_idx + 1}! 👋")
+        print(f"Screen lock on cooldown - please wait {remaining_time:.1f} seconds")
+        return
+    
     print(f"Waving detected from hand {hand_idx + 1}! 👋")
+    print("Initiating screen lock...")
+    
+    # Update last lock time
+    last_lock_time = current_time
+    
+    # Perform screen lock
+    success = SystemOperations.lock_screen()
+    if success:
+        print("Screen lock command sent successfully!")
+        print("The screen will be locked shortly...")
+    else:
+        print("Failed to lock screen - please check system permissions")
+        # Reset cooldown on failure to allow retry
+        last_lock_time = 0.0
 
 cap = cv2.VideoCapture(0)
 
+# Check if camera opened successfully
+if not cap.isOpened():
+    print("ERROR: Could not open camera. Please check:")
+    print("1. Camera is not being used by another application")
+    print("2. Camera permissions are granted")
+    print("3. Camera is physically connected")
+    print("4. Try using camera index 1 or 2 instead of 0")
+    
+    # Try alternative camera indices
+    for camera_index in [1, 2]:
+        cap = cv2.VideoCapture(camera_index)
+        if cap.isOpened():
+            print(f"Successfully opened camera at index {camera_index}")
+            break
+    else:
+        print("No camera found. Exiting...")
+        exit(1)
+
 message_until_s = 0.0
+
+print("Camera initialized successfully. Wave to lock screen!")
 
 while True:
     ret, frame = cap.read()
