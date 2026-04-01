@@ -8,6 +8,7 @@ import os
 # Add src directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from actions.system_operations import SystemOperations
+from mouse.mouse_controller import MouseController
 
 # ─── MediaPipe Setup ───────────────────────────────────────────────────────
 BaseOptions = mp.tasks.BaseOptions
@@ -30,7 +31,7 @@ options = GestureRecognizerOptions(
 )
 recognizer = GestureRecognizer.create_from_options(options)
 
-# ─── Hand Skeleton Drawing ─────────────────────────────────────────────────
+# ─── Hand Skeleton ─────────────────────────────────────────────────────────
 HAND_CONNECTIONS = [
     (0, 1), (1, 2), (2, 3), (3, 4),
     (0, 5), (5, 6), (6, 7), (7, 8),
@@ -39,10 +40,9 @@ HAND_CONNECTIONS = [
     (0, 17), (17, 18), (18, 19), (19, 20),
     (5, 9), (9, 13), (13, 17),
 ]
-
 PALM_LANDMARKS = [0, 5, 9, 13, 17]
 
-# ─── Static Gesture Hold Configuration ────────────────────────────────────
+# ─── System Gesture Config ─────────────────────────────────────────────────
 GESTURE_ACTIONS = {
     "Thumb_Up":    {"action": "volume_up",   "hold": 1.2, "cooldown": 2.0, "label": "Volume Up"},
     "Thumb_Down":  {"action": "volume_down", "hold": 1.2, "cooldown": 2.0, "label": "Volume Down"},
@@ -52,8 +52,8 @@ GESTURE_ACTIONS = {
 }
 
 last_action_time   = {k: 0.0 for k in GESTURE_ACTIONS}
-gesture_hold_start = [None] * 2
-gesture_hold_name  = [None] * 2
+gesture_hold_start = [None, None]
+gesture_hold_name  = [None, None]
 
 GESTURE_COLORS = {
     "Thumb_Up":    (100, 255, 100),
@@ -61,37 +61,64 @@ GESTURE_COLORS = {
     "Open_Palm":   (0,   200, 255),
     "Victory":     (255,  50, 200),
     "Closed_Fist": (0,    0,  255),
+    "ILoveYou":    (0,   200, 200),
+    "Pointing_Up": (255, 200,   0),
     "None":        (160, 160, 160),
 }
 
+# ─── Mouse Mode State ──────────────────────────────────────────────────────
+MAX_HANDS = 2
+mouse_mode    = [False] * MAX_HANDS      # True = this hand is in mouse control mode
+mouse_ctrl    = [MouseController(), MouseController()]
+
+# ILoveYou hold → toggle mouse mode
+MOUSE_TOGGLE_HOLD_S  = 1.2
+mouse_toggle_start   = [None] * MAX_HANDS
+mouse_toggle_gesture = "ILoveYou"
+
 # ─── Static Gesture Hold Detection ────────────────────────────────────────
 def detect_static_gesture(gesture_name, hand_idx, now_s):
-    """
-    Track how long a static gesture has been held.
-    Returns (triggered: bool, hold_progress: float 0-1).
-    """
     if gesture_name not in GESTURE_ACTIONS:
         gesture_hold_start[hand_idx] = None
-        gesture_hold_name[hand_idx] = None
+        gesture_hold_name[hand_idx]  = None
         return False, 0.0
 
     cfg = GESTURE_ACTIONS[gesture_name]
 
     if gesture_hold_name[hand_idx] != gesture_name:
         gesture_hold_start[hand_idx] = now_s
-        gesture_hold_name[hand_idx] = gesture_name
+        gesture_hold_name[hand_idx]  = gesture_name
 
-    held_for = now_s - gesture_hold_start[hand_idx]
+    held_for      = now_s - gesture_hold_start[hand_idx]
     hold_progress = min(held_for / cfg["hold"], 1.0)
-
-    in_cooldown = now_s - last_action_time[gesture_name] < cfg["cooldown"]
-    triggered = held_for >= cfg["hold"] and not in_cooldown
+    in_cooldown   = now_s - last_action_time[gesture_name] < cfg["cooldown"]
+    triggered     = held_for >= cfg["hold"] and not in_cooldown
 
     if triggered:
         last_action_time[gesture_name] = now_s
-        gesture_hold_start[hand_idx] = now_s
+        gesture_hold_start[hand_idx]   = now_s
 
     return triggered, hold_progress
+
+
+# ─── Mouse Toggle Hold Detection ──────────────────────────────────────────
+def detect_mouse_toggle(gesture_name, hand_idx, now_s):
+    """Track ILoveYou hold. Returns (toggled: bool, progress: float)."""
+    if gesture_name != mouse_toggle_gesture:
+        mouse_toggle_start[hand_idx] = None
+        return False, 0.0
+
+    if mouse_toggle_start[hand_idx] is None:
+        mouse_toggle_start[hand_idx] = now_s
+
+    held_for = now_s - mouse_toggle_start[hand_idx]
+    progress = min(held_for / MOUSE_TOGGLE_HOLD_S, 1.0)
+
+    if held_for >= MOUSE_TOGGLE_HOLD_S:
+        mouse_toggle_start[hand_idx] = None   # reset so it needs a new hold to re-toggle
+        return True, 1.0
+
+    return False, progress
 
 
 # ─── Action Dispatch ───────────────────────────────────────────────────────
@@ -112,17 +139,15 @@ def dispatch_action(action_name, hand_idx):
 
 
 # ─── Drawing Helpers ───────────────────────────────────────────────────────
-def draw_hand_skeleton(frame, hand_landmarks, color=(0, 255, 0)):
+def draw_hand_skeleton(frame, hand_landmarks, color):
     h, w = frame.shape[:2]
     pts = [(int(lm.x * w), int(lm.y * h)) for lm in hand_landmarks]
-
     for (a, b) in HAND_CONNECTIONS:
         cv2.line(frame, pts[a], pts[b], color, 2, cv2.LINE_AA)
-
     for i, (x, y) in enumerate(pts):
-        radius = 7 if i == 0 else 4
-        cv2.circle(frame, (x, y), radius, color, -1)
-        cv2.circle(frame, (x, y), radius, (255, 255, 255), 1)
+        r = 7 if i == 0 else 4
+        cv2.circle(frame, (x, y), r, color, -1)
+        cv2.circle(frame, (x, y), r, (255, 255, 255), 1)
 
 
 def draw_hold_arc(frame, hand_landmarks, progress, color):
@@ -134,22 +159,74 @@ def draw_hold_arc(frame, hand_landmarks, progress, color):
     cv2.ellipse(frame, (cx, cy), (32, 32), -90, angle, 360, (80, 80, 80), 2, cv2.LINE_AA)
 
 
-def draw_legend(frame):
+def draw_mouse_hud(frame, hand_landmarks, mouse_result):
+    """Draw crosshair on index tip + click/scroll indicators."""
     h, w = frame.shape[:2]
-    panel_w, line_h = 290, 22
-    start_y = h - len(GESTURE_ACTIONS) * line_h - 20
+    tip = hand_landmarks[8]
+    tx, ty = int(tip.x * w), int(tip.y * h)
+
+    # Crosshair on index tip
+    cv2.drawMarker(frame, (tx, ty), (0, 255, 255),
+                   cv2.MARKER_CROSS, 24, 2, cv2.LINE_AA)
+
+    # Left pinch indicator (thumb↔index)
+    p_left = mouse_result["pinch_left"]
+    lcol = (0, 255, 0) if p_left < 0.13 else (120, 120, 120)
+    cv2.circle(frame, (tx - 18, ty - 18), 8, lcol, -1)
+
+    # Right pinch indicator (thumb↔middle)
+    p_right = mouse_result["pinch_right"]
+    rcol = (0, 0, 255) if p_right < 0.13 else (120, 120, 120)
+    cv2.circle(frame, (tx + 18, ty - 18), 8, rcol, -1)
+
+    # Scroll indicator
+    if mouse_result["scrolling"]:
+        cv2.putText(frame, "SCROLL", (tx + 20, ty),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 200, 0), 2, cv2.LINE_AA)
+
+
+def draw_mouse_mode_border(frame):
+    """Draw a coloured border to make mouse mode visually obvious."""
+    h, w = frame.shape[:2]
+    cv2.rectangle(frame, (3, 3), (w - 3, h - 3), (0, 200, 255), 4)
+    cv2.putText(frame, "MOUSE MODE",
+                (w // 2 - 80, 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 200, 255), 2, cv2.LINE_AA)
+
+
+def draw_legend(frame, any_mouse_mode: bool):
+    h, w = frame.shape[:2]
+    lines = list(GESTURE_ACTIONS.items())
+    mouse_line = ("ILoveYou", {"label": "Toggle Mouse Mode", "hold": MOUSE_TOGGLE_HOLD_S})
+    all_lines = [mouse_line] + lines
+
+    panel_w, line_h = 320, 22
+    start_y = h - len(all_lines) * line_h - 20
 
     overlay = frame.copy()
     cv2.rectangle(overlay, (w - panel_w - 10, start_y - 10),
                   (w - 5, h - 10), (30, 30, 30), -1)
     cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
 
-    for i, (gname, cfg) in enumerate(GESTURE_ACTIONS.items()):
+    for i, (gname, cfg) in enumerate(all_lines):
         col = GESTURE_COLORS.get(gname, (200, 200, 200))
         text = f"{gname}: {cfg['label']} ({cfg['hold']}s)"
         cv2.putText(frame, text,
                     (w - panel_w - 5, start_y + i * line_h),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.42, col, 1, cv2.LINE_AA)
+
+    if any_mouse_mode:
+        mouse_guide = [
+            "  Move:        index fingertip",
+            "  Left click:  thumb+index pinch",
+            "  Right click: thumb+middle pinch",
+            "  Scroll:      Pointing_Up + move",
+        ]
+        gy = start_y - len(mouse_guide) * 18 - 8
+        for j, gl in enumerate(mouse_guide):
+            cv2.putText(frame, gl,
+                        (w - panel_w - 5, gy + j * 18),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 200, 255), 1, cv2.LINE_AA)
 
 
 # ─── Camera Setup ──────────────────────────────────────────────────────────
@@ -166,14 +243,14 @@ if not cap.isOpened():
 
 messages = []
 
-# ─── Inactivity Timeout ────────────────────────────────────────────────────
-INACTIVITY_TIMEOUT_S = 5.0     # seconds without any hand visible before auto-close
+INACTIVITY_TIMEOUT_S = 5.0
 last_hand_seen_t = time.time()
 
-print("[MiMi] Camera ready. Gesture guide:")
+print("[MiMi] Camera ready.")
+print("  ILoveYou (1.2s hold) -> Toggle Mouse Mode")
 for gname, cfg in GESTURE_ACTIONS.items():
     print(f"  {gname:<14} -> {cfg['label']:<14} (hold {cfg['hold']}s)")
-print(f"  Camera auto-closes after {int(INACTIVITY_TIMEOUT_S)}s of no hand detected.")
+print(f"  Auto-closes after {int(INACTIVITY_TIMEOUT_S)}s with no hand.")
 
 # ─── Main Loop ─────────────────────────────────────────────────────────────
 while True:
@@ -183,61 +260,119 @@ while True:
         break
 
     frame = cv2.flip(frame, 1)
-    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-
+    rgb_frame  = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    mp_image   = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
     timestamp_ms = int(time.time() * 1000)
     recognition_result = recognizer.recognize_for_video(mp_image, timestamp_ms)
     now_s = time.time()
 
+    any_mouse_mode = any(mouse_mode)
+
     if recognition_result.hand_landmarks:
-        last_hand_seen_t = now_s   # reset inactivity timer whenever a hand is visible
+        last_hand_seen_t = now_s
 
         for idx, hand_landmarks in enumerate(recognition_result.hand_landmarks):
-            gesture_name = "None"
+            gesture_name  = "None"
             gesture_score = 0.0
             if recognition_result.gestures and idx < len(recognition_result.gestures):
-                g = recognition_result.gestures[idx][0]
-                gesture_name = g.category_name
+                g             = recognition_result.gestures[idx][0]
+                gesture_name  = g.category_name
                 gesture_score = g.score
 
             color = GESTURE_COLORS.get(gesture_name, (0, 255, 0))
-            draw_hand_skeleton(frame, hand_landmarks, color)
 
-            hold_triggered, hold_progress = detect_static_gesture(gesture_name, idx, now_s)
+            # Mouse mode uses a cyan skeleton; normal mode uses gesture color
+            skel_color = (0, 200, 255) if mouse_mode[idx] else color
+            draw_hand_skeleton(frame, hand_landmarks, skel_color)
 
-            if hold_triggered:
-                action = GESTURE_ACTIONS[gesture_name]["action"]
-                label  = GESTURE_ACTIONS[gesture_name]["label"]
-                dispatch_action(action, idx)
-                messages.append((f"{label}!", now_s + 2.5, color))
+            # ── ILoveYou → toggle mouse mode ────────────────────────────
+            toggled, toggle_progress = detect_mouse_toggle(gesture_name, idx, now_s)
+            if toggled:
+                mouse_mode[idx] = not mouse_mode[idx]
+                if mouse_mode[idx]:
+                    print(f"[MiMi] Hand {idx+1}: Mouse mode ON")
+                    messages.append(("Mouse mode ON", now_s + 2.0, (0, 200, 255)))
+                else:
+                    print(f"[MiMi] Hand {idx+1}: Mouse mode OFF")
+                    mouse_ctrl[idx].reset()
+                    messages.append(("Mouse mode OFF", now_s + 2.0, (160, 160, 160)))
 
-            if hold_progress > 0.04 and gesture_name in GESTURE_ACTIONS:
-                draw_hold_arc(frame, hand_landmarks, hold_progress, color)
+            y = 38 + idx * 95
 
-            y = 38 + idx * 85
-            cv2.putText(frame, f"Hand {idx+1}: {gesture_name} ({gesture_score:.2f})",
-                        (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.85, color, 2, cv2.LINE_AA)
+            # ── Mouse mode branch ────────────────────────────────────────
+            if mouse_mode[idx]:
+                mouse_result = mouse_ctrl[idx].process(hand_landmarks, gesture_name)
+                draw_mouse_hud(frame, hand_landmarks, mouse_result)
 
-            if gesture_name in GESTURE_ACTIONS and hold_progress > 0.04:
-                pct = int(hold_progress * 100)
-                lbl = GESTURE_ACTIONS[gesture_name]["label"]
-                cv2.putText(frame, f"Hold: {lbl} {pct}%",
-                            (10, y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2, cv2.LINE_AA)
+                action_label = ""
+                if mouse_result["left_click"]:
+                    action_label = "LEFT CLICK"
+                elif mouse_result["right_click"]:
+                    action_label = "RIGHT CLICK"
+                elif mouse_result["scrolling"]:
+                    action_label = "SCROLL"
 
-    draw_legend(frame)
+                cv2.putText(frame, f"Hand {idx+1}: MOUSE {action_label}",
+                            (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.85,
+                            (0, 200, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, "ILoveYou to exit mouse mode",
+                            (10, y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                            (0, 200, 255), 1, cv2.LINE_AA)
 
-    # ── Inactivity countdown ────────────────────────────────────────────
+                # Show toggle-exit progress arc
+                if toggle_progress > 0.04:
+                    draw_hold_arc(frame, hand_landmarks, toggle_progress, (0, 200, 255))
+
+            # ── Normal gesture branch ────────────────────────────────────
+            else:
+                # Show ILoveYou toggle progress
+                if toggle_progress > 0.04:
+                    draw_hold_arc(frame, hand_landmarks, toggle_progress,
+                                  GESTURE_COLORS["ILoveYou"])
+                    cv2.putText(frame, f"Mouse mode {int(toggle_progress*100)}%",
+                                (10, y + 55), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.55, GESTURE_COLORS["ILoveYou"], 1, cv2.LINE_AA)
+
+                hold_triggered, hold_progress = detect_static_gesture(
+                    gesture_name, idx, now_s)
+
+                if hold_triggered:
+                    action = GESTURE_ACTIONS[gesture_name]["action"]
+                    label  = GESTURE_ACTIONS[gesture_name]["label"]
+                    dispatch_action(action, idx)
+                    messages.append((f"{label}!", now_s + 2.5, color))
+
+                if hold_progress > 0.04 and gesture_name in GESTURE_ACTIONS:
+                    draw_hold_arc(frame, hand_landmarks, hold_progress, color)
+
+                cv2.putText(frame, f"Hand {idx+1}: {gesture_name} ({gesture_score:.2f})",
+                            (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.85, color, 2, cv2.LINE_AA)
+
+                if gesture_name in GESTURE_ACTIONS and hold_progress > 0.04:
+                    pct = int(hold_progress * 100)
+                    lbl = GESTURE_ACTIONS[gesture_name]["label"]
+                    cv2.putText(frame, f"Hold: {lbl} {pct}%",
+                                (10, y + 30), cv2.FONT_HERSHEY_SIMPLEX,
+                                0.65, color, 2, cv2.LINE_AA)
+
+    # ── Global overlays ────────────────────────────────────────────────
+    if any_mouse_mode:
+        draw_mouse_mode_border(frame)
+
+    draw_legend(frame, any_mouse_mode)
+
+    # ── Inactivity ─────────────────────────────────────────────────────
     idle_s = now_s - last_hand_seen_t
     if idle_s >= INACTIVITY_TIMEOUT_S:
-        print("[MiMi] No hand detected — closing camera. Say 'Hey Mycroft' to reactivate.")
+        print("[MiMi] No hand detected — closing camera.")
         break
     elif idle_s >= INACTIVITY_TIMEOUT_S - 3:
         remaining = int(INACTIVITY_TIMEOUT_S - idle_s) + 1
-        cv2.putText(frame, f"No hand detected — closing in {remaining}s",
+        cv2.putText(frame, f"No hand — closing in {remaining}s",
                     (10, frame.shape[0] - 12),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2, cv2.LINE_AA)
 
+    # ── Message overlays ───────────────────────────────────────────────
     messages = [(t, u, c) for t, u, c in messages if now_s < u]
     for i, (txt, _, col) in enumerate(messages[-3:]):
         cv2.putText(frame, txt,

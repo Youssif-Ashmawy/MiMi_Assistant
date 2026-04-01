@@ -5,6 +5,7 @@ numpy
 colorama
 opencv-python
 mediapipe
+pyautogui
 
 ## Just as a note for me ##
 
