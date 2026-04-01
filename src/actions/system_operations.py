@@ -9,7 +9,6 @@ import platform
 import os
 import logging
 import sys
-from typing import Optional
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -205,4 +204,199 @@ class SystemOperations:
             return False
         except Exception as e:
             logger.error(f"Error during screen lock: {e}")
+            return False
+
+    @staticmethod
+    def volume_up(step: int = 6) -> bool:
+        """Increase system volume by `step` points (0-100)."""
+        try:
+            system = platform.system().lower()
+            if system == "darwin":
+                script = (
+                    f'set curVol to output volume of (get volume settings)\n'
+                    f'set newVol to curVol + {step}\n'
+                    f'if newVol > 100 then set newVol to 100\n'
+                    f'set volume output volume newVol'
+                )
+                result = subprocess.run(['osascript', '-e', script],
+                                        capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    logger.info(f"Volume increased by {step}")
+                    return True
+                logger.error(f"Volume up failed: {result.stderr}")
+                return False
+            elif system == "linux":
+                result = subprocess.run(['amixer', '-q', 'sset', 'Master', f'{step}%+'],
+                                        capture_output=True, text=True, timeout=5)
+                return result.returncode == 0
+            elif system == "windows":
+                # Use nircmd if available, otherwise skip
+                result = subprocess.run(['nircmd', 'changesysvolume', str(step * 655)],
+                                        capture_output=True, text=True, timeout=5)
+                return result.returncode == 0
+            return False
+        except Exception as e:
+            logger.error(f"Error during volume up: {e}")
+            return False
+
+    @staticmethod
+    def volume_down(step: int = 6) -> bool:
+        """Decrease system volume by `step` points (0-100)."""
+        try:
+            system = platform.system().lower()
+            if system == "darwin":
+                script = (
+                    f'set curVol to output volume of (get volume settings)\n'
+                    f'set newVol to curVol - {step}\n'
+                    f'if newVol < 0 then set newVol to 0\n'
+                    f'set volume output volume newVol'
+                )
+                result = subprocess.run(['osascript', '-e', script],
+                                        capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    logger.info(f"Volume decreased by {step}")
+                    return True
+                logger.error(f"Volume down failed: {result.stderr}")
+                return False
+            elif system == "linux":
+                result = subprocess.run(['amixer', '-q', 'sset', 'Master', f'{step}%-'],
+                                        capture_output=True, text=True, timeout=5)
+                return result.returncode == 0
+            elif system == "windows":
+                result = subprocess.run(['nircmd', 'changesysvolume', str(-step * 655)],
+                                        capture_output=True, text=True, timeout=5)
+                return result.returncode == 0
+            return False
+        except Exception as e:
+            logger.error(f"Error during volume down: {e}")
+            return False
+
+    @staticmethod
+    def mute_toggle() -> bool:
+        """Toggle system audio mute."""
+        try:
+            system = platform.system().lower()
+            if system == "darwin":
+                script = (
+                    'set isMuted to output muted of (get volume settings)\n'
+                    'set volume output muted not isMuted'
+                )
+                result = subprocess.run(['osascript', '-e', script],
+                                        capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    logger.info("Mute toggled")
+                    return True
+                logger.error(f"Mute toggle failed: {result.stderr}")
+                return False
+            elif system == "linux":
+                result = subprocess.run(['amixer', '-q', 'sset', 'Master', 'toggle'],
+                                        capture_output=True, text=True, timeout=5)
+                return result.returncode == 0
+            elif system == "windows":
+                ps_script = (
+                    '$obj = New-Object -ComObject WScript.Shell;'
+                    '$obj.SendKeys([char]173)'   # VK_VOLUME_MUTE
+                )
+                result = subprocess.run(['powershell', '-Command', ps_script],
+                                        capture_output=True, text=True, timeout=5)
+                return result.returncode == 0
+            return False
+        except Exception as e:
+            logger.error(f"Error during mute toggle: {e}")
+            return False
+
+    @staticmethod
+    def _get_snapshot_dir() -> str:
+        """Return path to MiMi_Assistant_Snapshots on the Desktop, creating it if needed."""
+        desktop = os.path.expanduser("~/Desktop")
+        folder = os.path.join(desktop, "MiMi_Assistant_Snapshots")
+        os.makedirs(folder, exist_ok=True)
+        return folder
+
+    @staticmethod
+    def take_screenshot() -> bool:
+        """Capture a screenshot and save it to ~/Desktop/MiMi_Assistant_Snapshots/."""
+        try:
+            import datetime
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            system = platform.system().lower()
+            folder = SystemOperations._get_snapshot_dir()
+            filepath = os.path.join(folder, f"screenshot_{timestamp}.png")
+
+            if system == "darwin":
+                result = subprocess.run(['screencapture', '-x', filepath],
+                                        capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    logger.info(f"Screenshot saved: {filepath}")
+                    return True
+                logger.error(f"Screenshot failed: {result.stderr}")
+                return False
+            elif system == "linux":
+                for cmd in [
+                    ['scrot', filepath],
+                    ['gnome-screenshot', '-f', filepath],
+                    ['import', '-window', 'root', filepath],   # ImageMagick
+                ]:
+                    try:
+                        result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                        if result.returncode == 0:
+                            logger.info(f"Screenshot saved: {filepath}")
+                            return True
+                    except FileNotFoundError:
+                        continue
+                return False
+            elif system == "windows":
+                filepath = os.path.join(folder, f"screenshot_{timestamp}.png")
+                ps_script = (
+                    f'Add-Type -AssemblyName System.Windows.Forms;'
+                    f'$bmp = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds;'
+                    f'$img = New-Object System.Drawing.Bitmap($bmp.Width, $bmp.Height);'
+                    f'$g = [System.Drawing.Graphics]::FromImage($img);'
+                    f'$g.CopyFromScreen($bmp.Location, [System.Drawing.Point]::Empty, $bmp.Size);'
+                    f'$img.Save("{filepath}");'
+                )
+                result = subprocess.run(['powershell', '-Command', ps_script],
+                                        capture_output=True, text=True, timeout=15)
+                return result.returncode == 0
+            return False
+        except Exception as e:
+            logger.error(f"Error during screenshot: {e}")
+            return False
+
+    @staticmethod
+    def open_spotlight() -> bool:
+        """Open Spotlight search (macOS) or equivalent on other platforms."""
+        try:
+            system = platform.system().lower()
+            if system == "darwin":
+                script = 'tell application "System Events" to keystroke " " using command down'
+                result = subprocess.run(['osascript', '-e', script],
+                                        capture_output=True, text=True, timeout=5)
+                if result.returncode == 0:
+                    logger.info("Spotlight opened")
+                    return True
+                logger.error(f"Spotlight failed: {result.stderr}")
+                return False
+            elif system == "linux":
+                # Try common application launchers
+                for cmd in [
+                    ['rofi', '-show', 'run'],
+                    ['dmenu_run'],
+                    ['xdotool', 'key', 'super'],
+                ]:
+                    try:
+                        subprocess.Popen(cmd)
+                        logger.info(f"Launcher opened: {cmd[0]}")
+                        return True
+                    except FileNotFoundError:
+                        continue
+                return False
+            elif system == "windows":
+                ps_script = '$wsh = New-Object -ComObject WScript.Shell; $wsh.SendKeys("^{ESC}")'
+                result = subprocess.run(['powershell', '-Command', ps_script],
+                                        capture_output=True, text=True, timeout=5)
+                return result.returncode == 0
+            return False
+        except Exception as e:
+            logger.error(f"Error opening spotlight/launcher: {e}")
             return False

@@ -1,7 +1,6 @@
 import cv2
 import mediapipe as mp
 import numpy as np
-from collections import deque
 import time
 import sys
 import os
@@ -10,231 +9,245 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from actions.system_operations import SystemOperations
 
-# Initialize MediaPipe Gesture Recognizer
+# ─── MediaPipe Setup ───────────────────────────────────────────────────────
 BaseOptions = mp.tasks.BaseOptions
 GestureRecognizer = mp.tasks.vision.GestureRecognizer
 GestureRecognizerOptions = mp.tasks.vision.GestureRecognizerOptions
 VisionRunningMode = mp.tasks.vision.RunningMode
 
-# Create a gesture recognizer instance with the custom model
-base_options = BaseOptions(model_asset_path='/Users/youssif/Documents/Projects/MiMi_Assistant/models/gesture_recognizer.task')
+MODEL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    'models', 'gesture_recognizer.task'
+)
 
 options = GestureRecognizerOptions(
-    base_options=base_options,
-    running_mode=VisionRunningMode.IMAGE,
+    base_options=BaseOptions(model_asset_path=MODEL_PATH),
+    running_mode=VisionRunningMode.VIDEO,
     num_hands=2,
     min_hand_detection_confidence=0.5,
     min_hand_presence_confidence=0.5,
     min_tracking_confidence=0.5
 )
-
 recognizer = GestureRecognizer.create_from_options(options)
 
-# Initialize waving detection variables
-hand_positions = [deque(maxlen=20) for _ in range(2)]  # Track positions for 2 hands as (t, x)
-last_wave_time = [0.0 for _ in range(2)]
-wave_cooldown_s = 1.0
+# ─── Hand Skeleton Drawing ─────────────────────────────────────────────────
+HAND_CONNECTIONS = [
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (0, 9), (9, 10), (10, 11), (11, 12),
+    (0, 13), (13, 14), (14, 15), (15, 16),
+    (0, 17), (17, 18), (18, 19), (19, 20),
+    (5, 9), (9, 13), (13, 17),
+]
 
-# System operation cooldown to prevent multiple rapid triggers
-last_lock_time = 0.0
-lock_cooldown_s = 5.0  # 5 seconds between lock attempts
+PALM_LANDMARKS = [0, 5, 9, 13, 17]
 
-wave_window_s = 0.9
-min_wave_amplitude = 0.12  # peak-to-peak normalized wrist-x movement required
-hysteresis_band = 0.06  # baseline +/- band to decide left/right (bigger = less false positives)
-min_crossings = 2  # number of center crossings in window
-min_speed = 0.45  # normalized x per second
+# ─── Static Gesture Hold Configuration ────────────────────────────────────
+GESTURE_ACTIONS = {
+    "Thumb_Up":    {"action": "volume_up",   "hold": 1.2, "cooldown": 2.0, "label": "Volume Up"},
+    "Thumb_Down":  {"action": "volume_down", "hold": 1.2, "cooldown": 2.0, "label": "Volume Down"},
+    "Open_Palm":   {"action": "screenshot",  "hold": 1.5, "cooldown": 3.0, "label": "Screenshot"},
+    "Victory":     {"action": "mute_toggle", "hold": 1.2, "cooldown": 2.0, "label": "Mute Toggle"},
+    "Closed_Fist": {"action": "lock_screen", "hold": 2.0, "cooldown": 5.0, "label": "Lock Screen"},
+}
 
-hand_last_side = [0, 0]
-hand_last_x = [None, None]
-hand_last_t = [None, None]
-hand_crossing_times = [deque(maxlen=10) for _ in range(2)]
+last_action_time   = {k: 0.0 for k in GESTURE_ACTIONS}
+gesture_hold_start = [None] * 2
+gesture_hold_name  = [None] * 2
 
-def detect_waving(hand_landmarks, hand_idx, now_s):
-    """Detect waving based on repeated centerline crossings with sufficient amplitude and speed."""
-    if not hand_landmarks:
-        return False, 0.0, 0, 0.0, 0.5, 0
+GESTURE_COLORS = {
+    "Thumb_Up":    (100, 255, 100),
+    "Thumb_Down":  (100, 100, 255),
+    "Open_Palm":   (0,   200, 255),
+    "Victory":     (255,  50, 200),
+    "Closed_Fist": (0,    0,  255),
+    "None":        (160, 160, 160),
+}
 
-    if now_s - last_wave_time[hand_idx] < wave_cooldown_s:
-        return False, 0.0, 0, 0.0, 0.5, 0
+# ─── Static Gesture Hold Detection ────────────────────────────────────────
+def detect_static_gesture(gesture_name, hand_idx, now_s):
+    """
+    Track how long a static gesture has been held.
+    Returns (triggered: bool, hold_progress: float 0-1).
+    """
+    if gesture_name not in GESTURE_ACTIONS:
+        gesture_hold_start[hand_idx] = None
+        gesture_hold_name[hand_idx] = None
+        return False, 0.0
 
-    # Use wrist landmark (landmark 0) for tracking
-    wrist = hand_landmarks[0]
-    current_x = float(wrist.x)
-    hand_positions[hand_idx].append((now_s, current_x))
+    cfg = GESTURE_ACTIONS[gesture_name]
 
-    # Compute amplitude over recent window
-    recent = [(t, x) for (t, x) in hand_positions[hand_idx] if now_s - t <= wave_window_s]
-    if len(recent) < 6:
-        return False, 0.0, len(hand_crossing_times[hand_idx]), 0.0, 0.5, 0
+    if gesture_hold_name[hand_idx] != gesture_name:
+        gesture_hold_start[hand_idx] = now_s
+        gesture_hold_name[hand_idx] = gesture_name
 
-    xs = np.array([x for (_, x) in recent], dtype=np.float32)
-    amplitude = float(np.max(xs) - np.min(xs))
+    held_for = now_s - gesture_hold_start[hand_idx]
+    hold_progress = min(held_for / cfg["hold"], 1.0)
 
-    # Instantaneous speed estimate
-    speed = 0.0
-    if hand_last_x[hand_idx] is not None and hand_last_t[hand_idx] is not None:
-        dt = now_s - hand_last_t[hand_idx]
-        if dt > 1e-3:
-            speed = abs(current_x - hand_last_x[hand_idx]) / dt
-    hand_last_x[hand_idx] = current_x
-    hand_last_t[hand_idx] = now_s
+    in_cooldown = now_s - last_action_time[gesture_name] < cfg["cooldown"]
+    triggered = held_for >= cfg["hold"] and not in_cooldown
 
-    # Adaptive baseline (works anywhere on screen)
-    baseline = float(np.median(xs))
+    if triggered:
+        last_action_time[gesture_name] = now_s
+        gesture_hold_start[hand_idx] = now_s
 
-    # Side of baseline with hysteresis
-    if current_x > baseline + hysteresis_band:
-        side = 1
-    elif current_x < baseline - hysteresis_band:
-        side = -1
+    return triggered, hold_progress
+
+
+# ─── Action Dispatch ───────────────────────────────────────────────────────
+def dispatch_action(action_name, hand_idx):
+    print(f"[MiMi] Action '{action_name}' triggered by hand {hand_idx + 1}")
+    actions = {
+        "lock_screen": SystemOperations.lock_screen,
+        "volume_up":   SystemOperations.volume_up,
+        "volume_down": SystemOperations.volume_down,
+        "mute_toggle": SystemOperations.mute_toggle,
+        "screenshot":  SystemOperations.take_screenshot,
+    }
+    fn = actions.get(action_name)
+    if fn:
+        fn()
     else:
-        side = 0
+        print(f"[MiMi] Unknown action: {action_name}")
 
-    prev_side = hand_last_side[hand_idx]
 
-    # Initialize side as soon as we get a confident (non-zero) side
-    if prev_side == 0 and side != 0:
-        hand_last_side[hand_idx] = side
-    elif side != 0 and prev_side != 0 and side != prev_side:
-        # Count crossing on any left<->right change; speed will be used only for final wave decision.
-        hand_crossing_times[hand_idx].append(now_s)
-        hand_last_side[hand_idx] = side
+# ─── Drawing Helpers ───────────────────────────────────────────────────────
+def draw_hand_skeleton(frame, hand_landmarks, color=(0, 255, 0)):
+    h, w = frame.shape[:2]
+    pts = [(int(lm.x * w), int(lm.y * h)) for lm in hand_landmarks]
 
-    # prune old crossings
-    while hand_crossing_times[hand_idx] and now_s - hand_crossing_times[hand_idx][0] > wave_window_s:
-        hand_crossing_times[hand_idx].popleft()
+    for (a, b) in HAND_CONNECTIONS:
+        cv2.line(frame, pts[a], pts[b], color, 2, cv2.LINE_AA)
 
-    crossings = len(hand_crossing_times[hand_idx])
-    is_waving = amplitude >= min_wave_amplitude and crossings >= min_crossings and speed >= min_speed
-    if is_waving:
-        last_wave_time[hand_idx] = now_s
-        hand_crossing_times[hand_idx].clear()
-        return True, amplitude, crossings, speed, baseline, side
+    for i, (x, y) in enumerate(pts):
+        radius = 7 if i == 0 else 4
+        cv2.circle(frame, (x, y), radius, color, -1)
+        cv2.circle(frame, (x, y), radius, (255, 255, 255), 1)
 
-    return False, amplitude, crossings, speed, baseline, side
 
-def trigger_waving_action(hand_idx):
-    """Execute action when waving is detected"""
-    global last_lock_time
-    
-    current_time = time.time()
-    
-    # Check if we're still in cooldown period
-    if current_time - last_lock_time < lock_cooldown_s:
-        remaining_time = lock_cooldown_s - (current_time - last_lock_time)
-        print(f"Waving detected from hand {hand_idx + 1}! 👋")
-        print(f"Screen lock on cooldown - please wait {remaining_time:.1f} seconds")
-        return
-    
-    print(f"Waving detected from hand {hand_idx + 1}! 👋")
-    print("Initiating screen lock...")
-    
-    # Update last lock time
-    last_lock_time = current_time
-    
-    # Perform screen lock
-    success = SystemOperations.lock_screen()
-    if success:
-        print("Screen lock command sent successfully!")
-        print("The screen will be locked shortly...")
-    else:
-        print("Failed to lock screen - please check system permissions")
-        # Reset cooldown on failure to allow retry
-        last_lock_time = 0.0
+def draw_hold_arc(frame, hand_landmarks, progress, color):
+    h, w = frame.shape[:2]
+    cx = int(np.mean([hand_landmarks[i].x for i in PALM_LANDMARKS]) * w)
+    cy = int(np.mean([hand_landmarks[i].y for i in PALM_LANDMARKS]) * h)
+    angle = int(360 * progress)
+    cv2.ellipse(frame, (cx, cy), (32, 32), -90, 0, angle, color, 4, cv2.LINE_AA)
+    cv2.ellipse(frame, (cx, cy), (32, 32), -90, angle, 360, (80, 80, 80), 2, cv2.LINE_AA)
 
+
+def draw_legend(frame):
+    h, w = frame.shape[:2]
+    panel_w, line_h = 290, 22
+    start_y = h - len(GESTURE_ACTIONS) * line_h - 20
+
+    overlay = frame.copy()
+    cv2.rectangle(overlay, (w - panel_w - 10, start_y - 10),
+                  (w - 5, h - 10), (30, 30, 30), -1)
+    cv2.addWeighted(overlay, 0.55, frame, 0.45, 0, frame)
+
+    for i, (gname, cfg) in enumerate(GESTURE_ACTIONS.items()):
+        col = GESTURE_COLORS.get(gname, (200, 200, 200))
+        text = f"{gname}: {cfg['label']} ({cfg['hold']}s)"
+        cv2.putText(frame, text,
+                    (w - panel_w - 5, start_y + i * line_h),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.42, col, 1, cv2.LINE_AA)
+
+
+# ─── Camera Setup ──────────────────────────────────────────────────────────
 cap = cv2.VideoCapture(0)
-
-# Check if camera opened successfully
 if not cap.isOpened():
-    print("ERROR: Could not open camera. Please check:")
-    print("1. Camera is not being used by another application")
-    print("2. Camera permissions are granted")
-    print("3. Camera is physically connected")
-    print("4. Try using camera index 1 or 2 instead of 0")
-    
-    # Try alternative camera indices
-    for camera_index in [1, 2]:
-        cap = cv2.VideoCapture(camera_index)
+    for idx in [1, 2]:
+        cap = cv2.VideoCapture(idx)
         if cap.isOpened():
-            print(f"Successfully opened camera at index {camera_index}")
+            print(f"[MiMi] Opened camera at index {idx}")
             break
     else:
-        print("No camera found. Exiting...")
-        exit(1)
+        print("[MiMi] ERROR: No camera found. Exiting.")
+        sys.exit(1)
 
-message_until_s = 0.0
+messages = []
 
-print("Camera initialized successfully. Wave to lock screen!")
+# ─── Inactivity Timeout ────────────────────────────────────────────────────
+INACTIVITY_TIMEOUT_S = 5.0     # seconds without any hand visible before auto-close
+last_hand_seen_t = time.time()
 
+print("[MiMi] Camera ready. Gesture guide:")
+for gname, cfg in GESTURE_ACTIONS.items():
+    print(f"  {gname:<14} -> {cfg['label']:<14} (hold {cfg['hold']}s)")
+print(f"  Camera auto-closes after {int(INACTIVITY_TIMEOUT_S)}s of no hand detected.")
+
+# ─── Main Loop ─────────────────────────────────────────────────────────────
 while True:
     ret, frame = cap.read()
     if not ret:
-        print("camera failed")
+        print("[MiMi] Camera read failed. Exiting.")
         break
 
-    # Flip the frame horizontally for selfie-view display
     frame = cv2.flip(frame, 1)
-    
-    # Convert frame to RGB for MediaPipe
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    
-    # Convert frame to MediaPipe image format
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
-    
-    # Process the frame for gesture recognition
-    recognition_result = recognizer.recognize(mp_image)
+
+    timestamp_ms = int(time.time() * 1000)
+    recognition_result = recognizer.recognize_for_video(mp_image, timestamp_ms)
     now_s = time.time()
-    
-    # Draw hand landmarks and display gestures
+
     if recognition_result.hand_landmarks:
+        last_hand_seen_t = now_s   # reset inactivity timer whenever a hand is visible
+
         for idx, hand_landmarks in enumerate(recognition_result.hand_landmarks):
-            # Draw circles at landmark positions
-            for landmark in hand_landmarks:
-                x = int(landmark.x * frame.shape[1])
-                y = int(landmark.y * frame.shape[0])
-                cv2.circle(frame, (x, y), 5, (0, 255, 0), -1)
-            
-            # Check for waving
-            is_waving, wave_amp, wave_cross, wave_speed, wave_base, wave_side = detect_waving(hand_landmarks, idx, now_s)
-            
-            # Trigger action if waving detected
-            if is_waving:
-                trigger_waving_action(idx)
-                message_until_s = max(message_until_s, now_s + 1.0)
-            
-            # Display results
-            y_offset = 30 + idx * 80
-            
-            if is_waving:
-                cv2.putText(frame, f"Hand {idx+1}: WAVING! 👋", 
-                           (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 
-                           1, (0, 255, 255), 2, cv2.LINE_AA)
-            elif recognition_result.gestures and idx < len(recognition_result.gestures):
-                gesture = recognition_result.gestures[idx][0]
-                cv2.putText(frame, f"Hand {idx+1}: {gesture.category_name} ({gesture.score:.2f})", 
-                           (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 
-                           1, (0, 255, 0), 2, cv2.LINE_AA)
-            else:
-                cv2.putText(frame, f"Hand {idx+1}: No gesture detected", 
-                           (10, y_offset), cv2.FONT_HERSHEY_SIMPLEX, 
-                           1, (128, 128, 128), 2, cv2.LINE_AA)
+            gesture_name = "None"
+            gesture_score = 0.0
+            if recognition_result.gestures and idx < len(recognition_result.gestures):
+                g = recognition_result.gestures[idx][0]
+                gesture_name = g.category_name
+                gesture_score = g.score
 
-            cv2.putText(frame, f"amp={wave_amp:.2f} cross={wave_cross} spd={wave_speed:.2f} base={wave_base:.2f} side={wave_side}",
-                        (10, y_offset + 35), cv2.FONT_HERSHEY_SIMPLEX,
-                        0.7, (255, 255, 255), 2, cv2.LINE_AA)
+            color = GESTURE_COLORS.get(gesture_name, (0, 255, 0))
+            draw_hand_skeleton(frame, hand_landmarks, color)
 
-    if now_s < message_until_s:
-        cv2.putText(frame, "Hello! Wave detected!", 
-                   (30, frame.shape[0] - 30),
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 0), 3, cv2.LINE_AA)
+            hold_triggered, hold_progress = detect_static_gesture(gesture_name, idx, now_s)
 
-    cv2.imshow("Hand Gesture Detection", frame)
+            if hold_triggered:
+                action = GESTURE_ACTIONS[gesture_name]["action"]
+                label  = GESTURE_ACTIONS[gesture_name]["label"]
+                dispatch_action(action, idx)
+                messages.append((f"{label}!", now_s + 2.5, color))
 
+            if hold_progress > 0.04 and gesture_name in GESTURE_ACTIONS:
+                draw_hold_arc(frame, hand_landmarks, hold_progress, color)
+
+            y = 38 + idx * 85
+            cv2.putText(frame, f"Hand {idx+1}: {gesture_name} ({gesture_score:.2f})",
+                        (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.85, color, 2, cv2.LINE_AA)
+
+            if gesture_name in GESTURE_ACTIONS and hold_progress > 0.04:
+                pct = int(hold_progress * 100)
+                lbl = GESTURE_ACTIONS[gesture_name]["label"]
+                cv2.putText(frame, f"Hold: {lbl} {pct}%",
+                            (10, y + 30), cv2.FONT_HERSHEY_SIMPLEX, 0.65, color, 2, cv2.LINE_AA)
+
+    draw_legend(frame)
+
+    # ── Inactivity countdown ────────────────────────────────────────────
+    idle_s = now_s - last_hand_seen_t
+    if idle_s >= INACTIVITY_TIMEOUT_S:
+        print("[MiMi] No hand detected — closing camera. Say 'Hey Mycroft' to reactivate.")
+        break
+    elif idle_s >= INACTIVITY_TIMEOUT_S - 3:
+        remaining = int(INACTIVITY_TIMEOUT_S - idle_s) + 1
+        cv2.putText(frame, f"No hand detected — closing in {remaining}s",
+                    (10, frame.shape[0] - 12),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 100, 255), 2, cv2.LINE_AA)
+
+    messages = [(t, u, c) for t, u, c in messages if now_s < u]
+    for i, (txt, _, col) in enumerate(messages[-3:]):
+        cv2.putText(frame, txt,
+                    (30, frame.shape[0] - 40 - i * 42),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0, col, 2, cv2.LINE_AA)
+
+    cv2.imshow("MiMi Assistant - Gesture Control", frame)
     if cv2.waitKey(1) == 27:
         break
 
-# Release the capture and destroy all windows
 cap.release()
 cv2.destroyAllWindows()
 recognizer.close()
