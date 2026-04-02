@@ -3,3 +3,4 @@ src/voice/__pycache__/
 venv/
 __pycache__/
 .fancygit/
+.DS_Store
