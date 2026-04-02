@@ -34,7 +34,8 @@ PINCH_THRESHOLD = 0.13     # normalised distance (fraction of palm size)
 CLICK_COOLDOWN  = 0.5      # seconds between successive clicks of the same button
 
 # ── Scroll ─────────────────────────────────────────────────────────────────
-SCROLL_SENSITIVITY = 40    # how many pixels of finger movement = 1 scroll click
+SCROLL_AMOUNT    = 5       # scroll clicks fired per tick
+SCROLL_TICK_S    = 0.12   # seconds between scroll ticks while gesture is held
 
 
 class MouseController:
@@ -52,7 +53,7 @@ class MouseController:
         self._right_held       = False
 
         # Scroll state
-        self._prev_scroll_y: float | None = None
+        self._last_scroll_t: float = 0.0
 
     # ── Public API ─────────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ class MouseController:
         """Call when mouse mode is turned off to clear stale state."""
         self._smooth_x = None
         self._smooth_y = None
-        self._prev_scroll_y = None
+        self._last_scroll_t = 0.0
         self._left_held = False
         self._right_held = False
 
@@ -104,19 +105,15 @@ class MouseController:
         result["cursor_px"] = (cx, cy)
         pyautogui.moveTo(cx, cy)
 
-        # ── Scroll mode: Pointing_Up gesture → track vertical delta ───────
-        if gesture_name == "Pointing_Up":
-            if self._prev_scroll_y is not None:
-                delta_y = idx_tip.y - self._prev_scroll_y
-                scroll_clicks = -int(delta_y * SCROLL_SENSITIVITY)
-                if scroll_clicks != 0:
-                    pyautogui.scroll(scroll_clicks)
-                    result["scrolling"] = True
-            self._prev_scroll_y = idx_tip.y
+        # ── Scroll mode: Thumb_Up → scroll up, Thumb_Down → scroll down ──
+        if gesture_name in ("Thumb_Up", "Thumb_Down"):
+            if now - self._last_scroll_t >= SCROLL_TICK_S:
+                direction = -1 if gesture_name == "Thumb_Up" else 1
+                pyautogui.scroll(direction * SCROLL_AMOUNT)
+                self._last_scroll_t = now
+                result["scrolling"] = True
             # Don't do click detection in scroll mode
             return result
-        else:
-            self._prev_scroll_y = None
 
         # ── Pinch distances ───────────────────────────────────────────────
         pinch_left  = self._pinch(hand_landmarks, 4, 8,  palm_size)
