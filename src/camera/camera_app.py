@@ -169,14 +169,23 @@ def draw_mouse_hud(frame, hand_landmarks, mouse_result):
     cv2.drawMarker(frame, (tx, ty), (0, 255, 255),
                    cv2.MARKER_CROSS, 24, 2, cv2.LINE_AA)
 
+    # Double-click loading arc around index tip
+    progress = mouse_result["pinch_progress"]
+    if progress > 0.0:
+        angle = int(360 * progress)
+        arc_col = (0, 255, 0) if progress < 1.0 else (0, 255, 255)
+        cv2.ellipse(frame, (tx, ty), (20, 20), -90, 0, angle,
+                    arc_col, 3, cv2.LINE_AA)
+        if progress >= 1.0:
+            cv2.putText(frame, "DOUBLE CLICK", (tx + 22, ty - 6),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2, cv2.LINE_AA)
+
     # Left pinch indicator (thumb↔index)
-    p_left = mouse_result["pinch_left"]
-    lcol = (0, 255, 0) if p_left < 0.13 else (120, 120, 120)
+    lcol = (0, 255, 0) if mouse_result["pinch_left"] < 0.13 else (120, 120, 120)
     cv2.circle(frame, (tx - 18, ty - 18), 8, lcol, -1)
 
     # Right pinch indicator (thumb↔middle)
-    p_right = mouse_result["pinch_right"]
-    rcol = (0, 0, 255) if p_right < 0.13 else (120, 120, 120)
+    rcol = (0, 0, 255) if mouse_result["pinch_right"] < 0.13 else (120, 120, 120)
     cv2.circle(frame, (tx + 18, ty - 18), 8, rcol, -1)
 
     # Scroll indicator
@@ -271,13 +280,20 @@ while True:
     if recognition_result.hand_landmarks:
         last_hand_seen_t = now_s
 
+        # Collect gesture names for all detected hands first so each hand
+        # can know what the other hand is doing (needed for drag trigger).
+        all_gesture_names = []
+        for i in range(len(recognition_result.hand_landmarks)):
+            if recognition_result.gestures and i < len(recognition_result.gestures):
+                all_gesture_names.append(recognition_result.gestures[i][0].category_name)
+            else:
+                all_gesture_names.append("None")
+
         for idx, hand_landmarks in enumerate(recognition_result.hand_landmarks):
-            gesture_name  = "None"
+            gesture_name  = all_gesture_names[idx]
             gesture_score = 0.0
             if recognition_result.gestures and idx < len(recognition_result.gestures):
-                g             = recognition_result.gestures[idx][0]
-                gesture_name  = g.category_name
-                gesture_score = g.score
+                gesture_score = recognition_result.gestures[idx][0].score
 
             color = GESTURE_COLORS.get(gesture_name, (0, 255, 0))
 
@@ -301,11 +317,21 @@ while True:
 
             # ── Mouse mode branch ────────────────────────────────────────
             if mouse_mode[idx]:
-                mouse_result = mouse_ctrl[idx].process(hand_landmarks, gesture_name)
+                # Drag trigger: any other hand currently showing Pointing_Up
+                drag_trigger = any(
+                    all_gesture_names[i] == "Pointing_Up"
+                    for i in range(len(all_gesture_names)) if i != idx
+                )
+                mouse_result = mouse_ctrl[idx].process(
+                    hand_landmarks, gesture_name, drag_trigger)
                 draw_mouse_hud(frame, hand_landmarks, mouse_result)
 
                 action_label = ""
-                if mouse_result["left_click"]:
+                if mouse_result["double_click"]:
+                    action_label = "DOUBLE CLICK"
+                elif mouse_result["dragging"]:
+                    action_label = "DRAGGING"
+                elif mouse_result["left_click"]:
                     action_label = "LEFT CLICK"
                 elif mouse_result["right_click"]:
                     action_label = "RIGHT CLICK"

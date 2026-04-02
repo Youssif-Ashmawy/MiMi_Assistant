@@ -2,117 +2,128 @@
 Mouse Controller
 Translates hand landmark positions into mouse actions.
 
-Controls (active only when mouse mode is ON):
+Controls (active only when mouse mode is ON for a hand):
   Move         — index fingertip (landmark 8) → cursor position
-  Left click   — pinch thumb (4) + index (8)
-  Right click  — pinch thumb (4) + middle (12)
-  Scroll       — Pointing_Up gesture + vertical hand movement
+  Left click   — pinch thumb+index, stay still, release before 1.4s
+  Double click — pinch thumb+index, stay still, hold 1.4s
+  Drag & drop  — pinch thumb+index (Hand 1) + other hand Pointing_Up (Hand 2)
+                 → grabs item; drop when Hand 2 leaves Pointing_Up
+  Right click  — pinch thumb+middle
+  Scroll up    — Thumb_Down gesture
+  Scroll down  — Thumb_Up gesture
 """
 
 import time
 import pyautogui
 import numpy as np
 
-# Never crash on fast movements to screen corner
-pyautogui.FAILSAFE = False
-pyautogui.PAUSE = 0          # Remove built-in delay — we control timing ourselves
+try:
+    from Quartz.CoreGraphics import (
+        CGEventCreateMouseEvent,
+        CGEventPost,
+        CGEventSetIntegerValueField,
+        kCGEventLeftMouseDown,
+        kCGEventLeftMouseUp,
+        kCGEventLeftMouseDragged,
+        kCGMouseEventClickState,
+        kCGHIDEventTap,
+    )
+    _HAS_QUARTZ = True
+except ImportError:
+    _HAS_QUARTZ = False
 
-# ── Screen dimensions (queried once at startup) ────────────────────────────
+pyautogui.FAILSAFE = False
+pyautogui.PAUSE = 0
+
 SCREEN_W, SCREEN_H = pyautogui.size()
 
-# ── Smoothing ──────────────────────────────────────────────────────────────
-# Exponential moving average alpha — lower = smoother but more lag
-SMOOTH_ALPHA = 0.25
-
-# ── Camera-to-screen mapping ───────────────────────────────────────────────
-# Shrink the active camera zone so you don't need to reach frame edges.
-# e.g. MARGIN=0.15 means the middle 70% of the frame maps to the full screen.
-MARGIN = 0.15
-
-# ── Pinch detection ────────────────────────────────────────────────────────
-PINCH_THRESHOLD = 0.13     # normalised distance (fraction of palm size)
-CLICK_COOLDOWN  = 0.5      # seconds between successive clicks of the same button
-
-# ── Scroll ─────────────────────────────────────────────────────────────────
-SCROLL_AMOUNT    = 5       # scroll clicks fired per tick
-SCROLL_TICK_S    = 0.12   # seconds between scroll ticks while gesture is held
+SMOOTH_ALPHA        = 0.25
+MARGIN              = 0.15
+PINCH_THRESHOLD     = 0.13
+CLICK_COOLDOWN      = 0.5
+DOUBLE_CLICK_HOLD_S = 1.4
+SCROLL_AMOUNT       = 5
+SCROLL_TICK_S       = 0.12
 
 
 class MouseController:
     """Stateful per-hand mouse controller."""
 
+    _IDLE     = "idle"
+    _PINCHING = "pinching"   # pinch held, no drag trigger yet
+    _DRAGGING = "dragging"   # mousedown sent, following hand
+
     def __init__(self):
-        # Smoothed cursor position
         self._smooth_x: float | None = None
         self._smooth_y: float | None = None
 
-        # Click state
-        self._last_left_click  = 0.0
-        self._last_right_click = 0.0
-        self._left_held        = False
-        self._right_held       = False
+        self._left_state         = self._IDLE
+        self._pinch_start_t:     float = 0.0
+        self._pinch_origin_x:    int   = 0
+        self._pinch_origin_y:    int   = 0
+        self._double_click_fired       = False
+        self._last_left_click:   float = 0.0
 
-        # Scroll state
-        self._last_scroll_t: float = 0.0
+        self._right_held               = False
+        self._last_right_click:  float = 0.0
 
-    # ── Public API ─────────────────────────────────────────────────────────
+        self._last_scroll_t:     float = 0.0
+
+    # ── Public ────────────────────────────────────────────────────────────
 
     def reset(self):
-        """Call when mouse mode is turned off to clear stale state."""
-        self._smooth_x = None
-        self._smooth_y = None
-        self._last_scroll_t = 0.0
-        self._left_held = False
+        if self._left_state == self._DRAGGING:
+            self._quartz_mouse_up(self._pinch_origin_x, self._pinch_origin_y)
+        self._smooth_x = self._smooth_y = None
+        self._left_state = self._IDLE
         self._right_held = False
 
-    def process(self, hand_landmarks, gesture_name: str) -> dict:
+    def process(self, hand_landmarks, gesture_name: str,
+                drag_trigger: bool = False) -> dict:
         """
-        Process one frame of hand landmarks.
+        Process one frame.
 
-        Returns a dict with keys:
-          cursor_px   (int, int)  — pixel position on screen
-          left_click  bool        — left click fired this frame
-          right_click bool        — right click fired this frame
-          scrolling   bool        — scroll active this frame
-          pinch_left  float       — normalised pinch distance thumb↔index
-          pinch_right float       — normalised pinch distance thumb↔middle
+        drag_trigger — True when the *other* hand is showing Pointing_Up.
+
+        Returns dict with keys:
+          cursor_px, left_click, double_click, dragging,
+          right_click, scrolling, pinch_left, pinch_right, pinch_progress
         """
         now = time.time()
         result = {
-            "cursor_px":   (0, 0),
-            "left_click":  False,
-            "right_click": False,
-            "scrolling":   False,
-            "pinch_left":  1.0,
-            "pinch_right": 1.0,
+            "cursor_px":      (0, 0),
+            "left_click":     False,
+            "double_click":   False,
+            "dragging":       False,
+            "right_click":    False,
+            "scrolling":      False,
+            "pinch_left":     1.0,
+            "pinch_right":    1.0,
+            "pinch_progress": 0.0,
         }
 
         palm_size = self._palm_size(hand_landmarks)
         if palm_size < 1e-5:
             return result
 
-        # ── Cursor movement (always driven by index tip) ──────────────────
+        # ── Smooth cursor ─────────────────────────────────────────────────
         idx_tip = hand_landmarks[8]
-        sx, sy = self._to_screen(idx_tip.x, idx_tip.y)
-
+        sx, sy  = self._to_screen(idx_tip.x, idx_tip.y)
         if self._smooth_x is None:
             self._smooth_x, self._smooth_y = float(sx), float(sy)
         else:
             self._smooth_x += SMOOTH_ALPHA * (sx - self._smooth_x)
             self._smooth_y += SMOOTH_ALPHA * (sy - self._smooth_y)
-
         cx, cy = int(self._smooth_x), int(self._smooth_y)
         result["cursor_px"] = (cx, cy)
-        pyautogui.moveTo(cx, cy)
 
-        # ── Scroll mode: Thumb_Up → scroll up, Thumb_Down → scroll down ──
+        # ── Scroll ────────────────────────────────────────────────────────
         if gesture_name in ("Thumb_Up", "Thumb_Down"):
             if now - self._last_scroll_t >= SCROLL_TICK_S:
                 direction = -1 if gesture_name == "Thumb_Up" else 1
                 pyautogui.scroll(direction * SCROLL_AMOUNT)
                 self._last_scroll_t = now
                 result["scrolling"] = True
-            # Don't do click detection in scroll mode
             return result
 
         # ── Pinch distances ───────────────────────────────────────────────
@@ -121,49 +132,122 @@ class MouseController:
         result["pinch_left"]  = pinch_left
         result["pinch_right"] = pinch_right
 
-        # ── Left click (thumb ↔ index) ────────────────────────────────────
-        if pinch_left < PINCH_THRESHOLD:
-            if not self._left_held and now - self._last_left_click > CLICK_COOLDOWN:
-                pyautogui.click(button="left")
-                self._last_left_click = now
-                result["left_click"] = True
-            self._left_held = True
-        else:
-            self._left_held = False
+        # ── Left pinch state machine ──────────────────────────────────────
 
-        # ── Right click (thumb ↔ middle) ──────────────────────────────────
+        # DRAGGING is checked first and is independent of pinch state —
+        # only drag_trigger (other hand Pointing_Up) controls grab/drop.
+        if self._left_state == self._DRAGGING:
+            if not drag_trigger:
+                # Other hand lowered → drop
+                self._quartz_mouse_up(cx, cy)
+                self._left_state = self._IDLE
+            else:
+                self._quartz_drag(cx, cy)
+                result["dragging"] = True
+
+        else:
+            pinching = pinch_left < PINCH_THRESHOLD
+
+            if pinching:
+                # IDLE → PINCHING
+                if self._left_state == self._IDLE:
+                    self._left_state         = self._PINCHING
+                    self._pinch_start_t      = now
+                    self._pinch_origin_x     = cx
+                    self._pinch_origin_y     = cy
+                    self._double_click_fired = False
+
+                # PINCHING
+                if self._left_state == self._PINCHING:
+                    held_for = now - self._pinch_start_t
+                    result["pinch_progress"] = min(held_for / DOUBLE_CLICK_HOLD_S, 1.0)
+
+                    if drag_trigger:
+                        # Other hand signals grab → start drag
+                        self._left_state = self._DRAGGING
+                        self._quartz_mouse_down(self._pinch_origin_x, self._pinch_origin_y)
+
+                    elif held_for >= DOUBLE_CLICK_HOLD_S and not self._double_click_fired:
+                        if now - self._last_left_click > CLICK_COOLDOWN:
+                            self._quartz_double_click(self._pinch_origin_x,
+                                                      self._pinch_origin_y)
+                            self._last_left_click    = now
+                            self._double_click_fired = True
+                            result["double_click"]   = True
+
+            else:
+                # Pinch released
+                if self._left_state == self._PINCHING and not self._double_click_fired:
+                    if now - self._last_left_click > CLICK_COOLDOWN:
+                        self._quartz_click(self._pinch_origin_x, self._pinch_origin_y)
+                        self._last_left_click = now
+                        result["left_click"]  = True
+
+                self._left_state = self._IDLE
+
+        # Move cursor only in IDLE (Quartz drag events handle it otherwise,
+        # and we freeze it during PINCHING for click accuracy)
+        if self._left_state == self._IDLE:
+            pyautogui.moveTo(cx, cy)
+
+        # ── Right click ───────────────────────────────────────────────────
         if pinch_right < PINCH_THRESHOLD:
             if not self._right_held and now - self._last_right_click > CLICK_COOLDOWN:
                 pyautogui.click(button="right")
                 self._last_right_click = now
-                result["right_click"] = True
+                result["right_click"]  = True
             self._right_held = True
         else:
             self._right_held = False
 
         return result
 
-    # ── Private helpers ────────────────────────────────────────────────────
+    # ── Quartz helpers ────────────────────────────────────────────────────
 
     @staticmethod
-    def _to_screen(norm_x: float, norm_y: float) -> tuple[int, int]:
-        """Map normalised [0,1] landmark coords → screen pixel, with margin."""
-        x = (norm_x - MARGIN) / (1.0 - 2 * MARGIN)
-        y = (norm_y - MARGIN) / (1.0 - 2 * MARGIN)
-        x = max(0.0, min(1.0, x))
-        y = max(0.0, min(1.0, y))
-        return int(x * SCREEN_W), int(y * SCREEN_H)
+    def _quartz_event(event_type, x: int, y: int, click_count: int = 1):
+        if not _HAS_QUARTZ:
+            return
+        point = (float(x), float(y))
+        evt   = CGEventCreateMouseEvent(None, event_type, point, 0)
+        CGEventSetIntegerValueField(evt, kCGMouseEventClickState, click_count)
+        CGEventPost(kCGHIDEventTap, evt)
+
+    def _quartz_mouse_down(self, x, y):
+        self._quartz_event(kCGEventLeftMouseDown, x, y)
+
+    def _quartz_mouse_up(self, x, y):
+        self._quartz_event(kCGEventLeftMouseUp, x, y)
+
+    def _quartz_drag(self, x, y):
+        self._quartz_event(kCGEventLeftMouseDragged, x, y)
+
+    def _quartz_click(self, x, y):
+        self._quartz_event(kCGEventLeftMouseDown, x, y)
+        self._quartz_event(kCGEventLeftMouseUp,   x, y)
+
+    def _quartz_double_click(self, x, y):
+        for count in (1, 2):
+            self._quartz_event(kCGEventLeftMouseDown, x, y, count)
+            self._quartz_event(kCGEventLeftMouseUp,   x, y, count)
+            if count == 1:
+                time.sleep(0.05)
+
+    # ── Other helpers ─────────────────────────────────────────────────────
 
     @staticmethod
-    def _palm_size(hand_landmarks) -> float:
-        """Distance wrist (0) → middle MCP (9) as a normalisation factor."""
-        w = hand_landmarks[0]
-        m = hand_landmarks[9]
+    def _to_screen(nx, ny):
+        x = (nx - MARGIN) / (1.0 - 2 * MARGIN)
+        y = (ny - MARGIN) / (1.0 - 2 * MARGIN)
+        return (int(max(0.0, min(1.0, x)) * SCREEN_W),
+                int(max(0.0, min(1.0, y)) * SCREEN_H))
+
+    @staticmethod
+    def _palm_size(lm):
+        w, m = lm[0], lm[9]
         return ((w.x - m.x) ** 2 + (w.y - m.y) ** 2) ** 0.5
 
     @staticmethod
-    def _pinch(hand_landmarks, a: int, b: int, palm_size: float) -> float:
-        """Normalised distance between landmarks a and b."""
-        la, lb = hand_landmarks[a], hand_landmarks[b]
-        d = ((la.x - lb.x) ** 2 + (la.y - lb.y) ** 2) ** 0.5
-        return d / palm_size
+    def _pinch(lm, a, b, palm_size):
+        la, lb = lm[a], lm[b]
+        return ((la.x - lb.x) ** 2 + (la.y - lb.y) ** 2) ** 0.5 / palm_size
