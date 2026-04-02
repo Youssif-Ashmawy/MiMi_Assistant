@@ -9,6 +9,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from actions.system_operations import SystemOperations
 from mouse.mouse_controller import MouseController
+from utils.notifier import notify
 
 # ─── MediaPipe Setup ───────────────────────────────────────────────────────
 BaseOptions = mp.tasks.BaseOptions
@@ -68,8 +69,9 @@ GESTURE_COLORS = {
 
 # ─── Mouse Mode State ──────────────────────────────────────────────────────
 MAX_HANDS = 2
-mouse_mode    = [False] * MAX_HANDS      # True = this hand is in mouse control mode
-mouse_ctrl    = [MouseController(), MouseController()]
+mouse_mode     = [False] * MAX_HANDS
+mouse_ctrl     = [MouseController(), MouseController()]
+_was_dragging  = [False] * MAX_HANDS    # track drag start edge for one-shot notification
 
 # ILoveYou hold → toggle mouse mode
 MOUSE_TOGGLE_HOLD_S  = 1.2
@@ -255,6 +257,8 @@ messages = []
 INACTIVITY_TIMEOUT_S = 5.0
 last_hand_seen_t = time.time()
 
+notify("MiMi Assistant", "Camera is active — gesture control ready")
+
 print("[MiMi] Camera ready.")
 print("  ILoveYou (1.2s hold) -> Toggle Mouse Mode")
 for gname, cfg in GESTURE_ACTIONS.items():
@@ -307,10 +311,12 @@ while True:
                 mouse_mode[idx] = not mouse_mode[idx]
                 if mouse_mode[idx]:
                     print(f"[MiMi] Hand {idx+1}: Mouse mode ON")
+                    notify("MiMi Assistant", "Mouse Mode ON")
                     messages.append(("Mouse mode ON", now_s + 2.0, (0, 200, 255)))
                 else:
                     print(f"[MiMi] Hand {idx+1}: Mouse mode OFF")
                     mouse_ctrl[idx].reset()
+                    notify("MiMi Assistant", "Mouse Mode OFF")
                     messages.append(("Mouse mode OFF", now_s + 2.0, (160, 160, 160)))
 
             y = 38 + idx * 95
@@ -328,15 +334,20 @@ while True:
 
                 action_label = ""
                 if mouse_result["double_click"]:
-                    action_label = "DOUBLE CLICK"
-                elif mouse_result["dragging"]:
-                    action_label = "DRAGGING"
+                    action_label = "Double Click"
+                    notify("MiMi Assistant", "Double Click")
+                elif mouse_result["dragging"] and not _was_dragging[idx]:
+                    action_label = "Dragging"
+                    notify("MiMi Assistant", "Dragging")
                 elif mouse_result["left_click"]:
-                    action_label = "LEFT CLICK"
+                    action_label = "Left Click"
+                    notify("MiMi Assistant", "Left Click")
                 elif mouse_result["right_click"]:
-                    action_label = "RIGHT CLICK"
+                    action_label = "Right Click"
+                    notify("MiMi Assistant", "Right Click")
                 elif mouse_result["scrolling"]:
-                    action_label = "SCROLL"
+                    action_label = "Scroll"
+                _was_dragging[idx] = mouse_result["dragging"]
 
                 cv2.putText(frame, f"Hand {idx+1}: MOUSE {action_label}",
                             (10, y), cv2.FONT_HERSHEY_SIMPLEX, 0.85,
@@ -366,6 +377,7 @@ while True:
                     action = GESTURE_ACTIONS[gesture_name]["action"]
                     label  = GESTURE_ACTIONS[gesture_name]["label"]
                     dispatch_action(action, idx)
+                    notify("MiMi Assistant", label)
                     messages.append((f"{label}!", now_s + 2.5, color))
 
                 if hold_progress > 0.04 and gesture_name in GESTURE_ACTIONS:
