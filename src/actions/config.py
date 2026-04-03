@@ -8,10 +8,10 @@ from enum import Enum
 
 class GestureAction(Enum):
     LOCK_SCREEN = "lock_screen"
-    VOLUME_UP   = "volume_up"
+    VOLUME_UP = "volume_up"
     VOLUME_DOWN = "volume_down"
     MUTE_TOGGLE = "mute_toggle"
-    SCREENSHOT  = "screenshot"
+    SCREENSHOT = "screenshot"
 
 
 # Maps MediaPipe gesture names → action config.

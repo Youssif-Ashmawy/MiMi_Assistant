@@ -28,6 +28,7 @@ try:
         kCGMouseEventClickState,
         kCGHIDEventTap,
     )
+
     _HAS_QUARTZ = True
 except ImportError:
     _HAS_QUARTZ = False
@@ -37,37 +38,37 @@ pyautogui.PAUSE = 0
 
 SCREEN_W, SCREEN_H = pyautogui.size()
 
-SMOOTH_ALPHA        = 0.25
-MARGIN              = 0.15
-PINCH_THRESHOLD     = 0.13
-CLICK_COOLDOWN      = 0.5
+SMOOTH_ALPHA = 0.25
+MARGIN = 0.15
+PINCH_THRESHOLD = 0.13
+CLICK_COOLDOWN = 0.5
 DOUBLE_CLICK_HOLD_S = 1.4
-SCROLL_AMOUNT       = 5
-SCROLL_TICK_S       = 0.12
+SCROLL_AMOUNT = 5
+SCROLL_TICK_S = 0.12
 
 
 class MouseController:
     """Stateful per-hand mouse controller."""
 
-    _IDLE     = "idle"
-    _PINCHING = "pinching"   # pinch held, no drag trigger yet
-    _DRAGGING = "dragging"   # mousedown sent, following hand
+    _IDLE = "idle"
+    _PINCHING = "pinching"  # pinch held, no drag trigger yet
+    _DRAGGING = "dragging"  # mousedown sent, following hand
 
     def __init__(self):
         self._smooth_x: float | None = None
         self._smooth_y: float | None = None
 
-        self._left_state         = self._IDLE
-        self._pinch_start_t:     float = 0.0
-        self._pinch_origin_x:    int   = 0
-        self._pinch_origin_y:    int   = 0
-        self._double_click_fired       = False
-        self._last_left_click:   float = 0.0
+        self._left_state = self._IDLE
+        self._pinch_start_t: float = 0.0
+        self._pinch_origin_x: int = 0
+        self._pinch_origin_y: int = 0
+        self._double_click_fired = False
+        self._last_left_click: float = 0.0
 
-        self._right_held               = False
-        self._last_right_click:  float = 0.0
+        self._right_held = False
+        self._last_right_click: float = 0.0
 
-        self._last_scroll_t:     float = 0.0
+        self._last_scroll_t: float = 0.0
 
     # ── Public ────────────────────────────────────────────────────────────
 
@@ -78,8 +79,9 @@ class MouseController:
         self._left_state = self._IDLE
         self._right_held = False
 
-    def process(self, hand_landmarks, gesture_name: str,
-                drag_trigger: bool = False) -> dict:
+    def process(
+        self, hand_landmarks, gesture_name: str, drag_trigger: bool = False
+    ) -> dict:
         """
         Process one frame.
 
@@ -91,14 +93,14 @@ class MouseController:
         """
         now = time.time()
         result = {
-            "cursor_px":      (0, 0),
-            "left_click":     False,
-            "double_click":   False,
-            "dragging":       False,
-            "right_click":    False,
-            "scrolling":      False,
-            "pinch_left":     1.0,
-            "pinch_right":    1.0,
+            "cursor_px": (0, 0),
+            "left_click": False,
+            "double_click": False,
+            "dragging": False,
+            "right_click": False,
+            "scrolling": False,
+            "pinch_left": 1.0,
+            "pinch_right": 1.0,
             "pinch_progress": 0.0,
         }
 
@@ -108,7 +110,7 @@ class MouseController:
 
         # ── Smooth cursor ─────────────────────────────────────────────────
         idx_tip = hand_landmarks[8]
-        sx, sy  = self._to_screen(idx_tip.x, idx_tip.y)
+        sx, sy = self._to_screen(idx_tip.x, idx_tip.y)
         if self._smooth_x is None:
             self._smooth_x, self._smooth_y = float(sx), float(sy)
         else:
@@ -127,9 +129,9 @@ class MouseController:
             return result
 
         # ── Pinch distances ───────────────────────────────────────────────
-        pinch_left  = self._pinch(hand_landmarks, 4, 8,  palm_size)
+        pinch_left = self._pinch(hand_landmarks, 4, 8, palm_size)
         pinch_right = self._pinch(hand_landmarks, 4, 12, palm_size)
-        result["pinch_left"]  = pinch_left
+        result["pinch_left"] = pinch_left
         result["pinch_right"] = pinch_right
 
         # ── Left pinch state machine ──────────────────────────────────────
@@ -151,10 +153,10 @@ class MouseController:
             if pinching:
                 # IDLE → PINCHING
                 if self._left_state == self._IDLE:
-                    self._left_state         = self._PINCHING
-                    self._pinch_start_t      = now
-                    self._pinch_origin_x     = cx
-                    self._pinch_origin_y     = cy
+                    self._left_state = self._PINCHING
+                    self._pinch_start_t = now
+                    self._pinch_origin_x = cx
+                    self._pinch_origin_y = cy
                     self._double_click_fired = False
 
                 # PINCHING
@@ -165,15 +167,20 @@ class MouseController:
                     if drag_trigger:
                         # Other hand signals grab → start drag
                         self._left_state = self._DRAGGING
-                        self._quartz_mouse_down(self._pinch_origin_x, self._pinch_origin_y)
+                        self._quartz_mouse_down(
+                            self._pinch_origin_x, self._pinch_origin_y
+                        )
 
-                    elif held_for >= DOUBLE_CLICK_HOLD_S and not self._double_click_fired:
+                    elif (
+                        held_for >= DOUBLE_CLICK_HOLD_S and not self._double_click_fired
+                    ):
                         if now - self._last_left_click > CLICK_COOLDOWN:
-                            self._quartz_double_click(self._pinch_origin_x,
-                                                      self._pinch_origin_y)
-                            self._last_left_click    = now
+                            self._quartz_double_click(
+                                self._pinch_origin_x, self._pinch_origin_y
+                            )
+                            self._last_left_click = now
                             self._double_click_fired = True
-                            result["double_click"]   = True
+                            result["double_click"] = True
 
             else:
                 # Pinch released
@@ -181,7 +188,7 @@ class MouseController:
                     if now - self._last_left_click > CLICK_COOLDOWN:
                         self._quartz_click(self._pinch_origin_x, self._pinch_origin_y)
                         self._last_left_click = now
-                        result["left_click"]  = True
+                        result["left_click"] = True
 
                 self._left_state = self._IDLE
 
@@ -195,7 +202,7 @@ class MouseController:
             if not self._right_held and now - self._last_right_click > CLICK_COOLDOWN:
                 pyautogui.click(button="right")
                 self._last_right_click = now
-                result["right_click"]  = True
+                result["right_click"] = True
             self._right_held = True
         else:
             self._right_held = False
@@ -209,7 +216,7 @@ class MouseController:
         if not _HAS_QUARTZ:
             return
         point = (float(x), float(y))
-        evt   = CGEventCreateMouseEvent(None, event_type, point, 0)
+        evt = CGEventCreateMouseEvent(None, event_type, point, 0)
         CGEventSetIntegerValueField(evt, kCGMouseEventClickState, click_count)
         CGEventPost(kCGHIDEventTap, evt)
 
@@ -224,12 +231,12 @@ class MouseController:
 
     def _quartz_click(self, x, y):
         self._quartz_event(kCGEventLeftMouseDown, x, y)
-        self._quartz_event(kCGEventLeftMouseUp,   x, y)
+        self._quartz_event(kCGEventLeftMouseUp, x, y)
 
     def _quartz_double_click(self, x, y):
         for count in (1, 2):
             self._quartz_event(kCGEventLeftMouseDown, x, y, count)
-            self._quartz_event(kCGEventLeftMouseUp,   x, y, count)
+            self._quartz_event(kCGEventLeftMouseUp, x, y, count)
             if count == 1:
                 time.sleep(0.05)
 
@@ -239,8 +246,10 @@ class MouseController:
     def _to_screen(nx, ny):
         x = (nx - MARGIN) / (1.0 - 2 * MARGIN)
         y = (ny - MARGIN) / (1.0 - 2 * MARGIN)
-        return (int(max(0.0, min(1.0, x)) * SCREEN_W),
-                int(max(0.0, min(1.0, y)) * SCREEN_H))
+        return (
+            int(max(0.0, min(1.0, x)) * SCREEN_W),
+            int(max(0.0, min(1.0, y)) * SCREEN_H),
+        )
 
     @staticmethod
     def _palm_size(lm):
