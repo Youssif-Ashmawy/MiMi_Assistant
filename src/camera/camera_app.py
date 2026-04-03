@@ -59,12 +59,6 @@ GESTURE_ACTIONS = {
         "cooldown": 5.0,
         "label": "Lock Screen",
     },
-    "Pointing_Up": {
-        "action": "switch_display",
-        "hold": 1.5,
-        "cooldown": 2.0,
-        "label": "Switch Display",
-    },
 }
 
 last_action_time = {k: 0.0 for k in GESTURE_ACTIONS}
@@ -219,21 +213,26 @@ def detect_mouse_toggle(gesture_name, hand_idx, now_s):
 
 
 # ─── Action Dispatch ───────────────────────────────────────────────────────
+_ACTION_MAP = {
+    "lock_screen": "lock_screen",
+    "volume_up": "volume_up",
+    "volume_down": "volume_down",
+    "mute_toggle": "mute_toggle",
+    "screenshot": "take_screenshot",
+}
+
+
 def dispatch_action(action_name, hand_idx):
     print(f"[MiMi] Action '{action_name}' triggered by hand {hand_idx + 1}")
-    actions = {
-        "lock_screen": SystemOperations.lock_screen,
-        "volume_up": SystemOperations.volume_up,
-        "volume_down": SystemOperations.volume_down,
-        "mute_toggle": SystemOperations.mute_toggle,
-        "screenshot": SystemOperations.take_screenshot,
-        "switch_display": SystemOperations.switch_display,
-    }
-    fn = actions.get(action_name)
-    if fn:
-        fn()
-    else:
+    method_name = _ACTION_MAP.get(action_name)
+    if not method_name:
         print(f"[MiMi] Unknown action: {action_name}")
+        return
+    fn = getattr(SystemOperations, method_name, None)
+    if fn is None:
+        print(f"[MiMi] Action '{action_name}' not available in this version")
+        return
+    fn()
 
 
 # ─── Drawing Helpers ───────────────────────────────────────────────────────
