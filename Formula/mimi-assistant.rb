@@ -14,8 +14,10 @@ class MimiAssistant < Formula
   depends_on "portaudio" # required by pyaudio
 
   def install
-    # Install source code and models
-    libexec.install "src", "models", "scripts"
+    # Install all project files preserving directory structure
+    (libexec/"src").install Dir["src/*"]
+    (libexec/"models").install Dir["models/*"]
+    (libexec/"scripts").install Dir["scripts/*"]
     libexec.install "requirements.txt"
 
     # Create venv using the Homebrew Python 3.13 explicitly
