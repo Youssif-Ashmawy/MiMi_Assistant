@@ -49,7 +49,9 @@ class MiMiAssistant:
             )
             return
         self.camera_process = subprocess.Popen([sys.executable, camera_script])
-        print(f"{Fore.CYAN}📷 Camera process started (pre-warming in background){Style.RESET_ALL}")
+        print(
+            f"{Fore.CYAN}📷 Camera process started (pre-warming in background){Style.RESET_ALL}"
+        )
 
     def on_voice_activation(self):
         """Callback when voice activation is detected"""
