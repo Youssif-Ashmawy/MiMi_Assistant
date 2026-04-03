@@ -14,8 +14,8 @@ Controls (active only when mouse mode is ON for a hand):
 """
 
 import time
+
 import pyautogui
-import numpy as np
 
 try:
     from Quartz.CoreGraphics import (

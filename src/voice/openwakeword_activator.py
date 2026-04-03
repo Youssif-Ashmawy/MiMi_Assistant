@@ -4,8 +4,13 @@ OpenWakeWord Voice Activator - Ultra-fast Wake Word Detection
 Uses openWakeWord for real-time, low-latency wake word detection
 """
 
-import pyaudio
 import logging
+import threading
+import time
+
+import numpy as np
+import pyaudio
+from colorama import Fore, Style
 
 # Suppress openwakeword's expected tflite-not-found notice (onnxruntime is used instead)
 class _TfliteFilter(logging.Filter):
@@ -14,11 +19,7 @@ class _TfliteFilter(logging.Filter):
 
 logging.getLogger().addFilter(_TfliteFilter())
 
-import openwakeword
-import time
-import threading
-import numpy as np
-from colorama import Fore, Style
+import openwakeword  # noqa: E402
 
 class OpenWakeWordActivator:
     def __init__(self, wake_word="hey_mycroft"):
@@ -70,13 +71,13 @@ class OpenWakeWordActivator:
                 if device_info['maxInputChannels'] > 0:
                     mics.append((i, device_info['name']))
             
-            print(f"Available microphones:")
+            print("Available microphones:")
             for i, mic_name in mics:
                 print(f"  {i}: {mic_name}")
             
             # Use default microphone
             self.microphone_index = None
-            print(f"Using default microphone")
+            print("Using default microphone")
                 
         except Exception as e:
             print(f"Error setting up microphone: {e}")
@@ -203,7 +204,7 @@ class OpenWakeWordActivator:
                     predictions = self.model.predict(audio_data)
                     max_score = max(predictions.values()) if predictions else 0
                     print(f"Audio sample {i+1}/5 - Volume: {volume:.2f}, Max prediction: {max_score:.3f}")
-                except:
+                except Exception:
                     print(f"Audio sample {i+1}/5 - Volume: {volume:.2f}")
             
             stream.stop_stream()
