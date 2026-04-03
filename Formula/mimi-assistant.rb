@@ -63,6 +63,13 @@ class MimiAssistant < Formula
       Then start immediately with:
         mimi-ctl start
 
+      Other commands:
+        mimi-ctl stop        — stop MiMi
+        mimi-ctl status      — check if running
+        mimi-ctl logs        — live log tail
+        mimi-ctl upgrade     — upgrade to latest version
+        mimi-ctl uninstall   — fully uninstall MiMi
+
       ⚠️  Terminal must have Microphone permission:
         System Settings → Privacy & Security → Microphone → Terminal ✓
     EOS
