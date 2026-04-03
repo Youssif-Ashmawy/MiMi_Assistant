@@ -35,11 +35,36 @@ recognizer = GestureRecognizer.create_from_options(options)
 
 # ─── System Gesture Config ─────────────────────────────────────────────────
 GESTURE_ACTIONS = {
-    "Thumb_Up": {"action": "volume_up", "hold": 1.2, "cooldown": 2.0, "label": "Volume Up"},
-    "Thumb_Down": {"action": "volume_down", "hold": 1.2, "cooldown": 2.0, "label": "Volume Down"},
-    "Open_Palm": {"action": "screenshot", "hold": 1.5, "cooldown": 3.0, "label": "Screenshot"},
-    "Victory": {"action": "mute_toggle", "hold": 1.2, "cooldown": 2.0, "label": "Mute Toggle"},
-    "Closed_Fist": {"action": "lock_screen", "hold": 2.0, "cooldown": 5.0, "label": "Lock Screen"},
+    "Thumb_Up": {
+        "action": "volume_up",
+        "hold": 1.2,
+        "cooldown": 2.0,
+        "label": "Volume Up",
+    },
+    "Thumb_Down": {
+        "action": "volume_down",
+        "hold": 1.2,
+        "cooldown": 2.0,
+        "label": "Volume Down",
+    },
+    "Open_Palm": {
+        "action": "screenshot",
+        "hold": 1.5,
+        "cooldown": 3.0,
+        "label": "Screenshot",
+    },
+    "Victory": {
+        "action": "mute_toggle",
+        "hold": 1.2,
+        "cooldown": 2.0,
+        "label": "Mute Toggle",
+    },
+    "Closed_Fist": {
+        "action": "lock_screen",
+        "hold": 2.0,
+        "cooldown": 5.0,
+        "label": "Lock Screen",
+    },
 }
 
 last_action_time = {k: 0.0 for k in GESTURE_ACTIONS}
@@ -156,7 +181,9 @@ while True:
         all_gesture_names = []
         for i in range(len(recognition_result.hand_landmarks)):
             if recognition_result.gestures and i < len(recognition_result.gestures):
-                all_gesture_names.append(recognition_result.gestures[i][0].category_name)
+                all_gesture_names.append(
+                    recognition_result.gestures[i][0].category_name
+                )
             else:
                 all_gesture_names.append("None")
 
