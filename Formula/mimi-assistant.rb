@@ -10,6 +10,7 @@ class MimiAssistant < Formula
   license "Apache-2.0"
 
   depends_on :macos
+  depends_on "python@3.13"
   depends_on "portaudio" # required by pyaudio
 
   def install
@@ -17,9 +18,10 @@ class MimiAssistant < Formula
     libexec.install "src", "models", "scripts"
     libexec.install "requirements.txt"
 
-    # Create venv and install Python deps
+    # Create venv using the Homebrew Python 3.13 explicitly
+    python = Formula["python@3.13"].opt_bin/"python3.13"
     venv = libexec/"venv"
-    system "python3", "-m", "venv", venv.to_s
+    system python, "-m", "venv", venv.to_s
     system "#{venv}/bin/pip", "install", "--upgrade", "pip", "--quiet"
     system "#{venv}/bin/pip", "install", "-r", "#{libexec}/requirements.txt", "--quiet"
 
