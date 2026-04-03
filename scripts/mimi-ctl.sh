@@ -18,13 +18,15 @@ PYTHON="$MIMI_HOME/venv/bin/python"
 MAIN="$MIMI_HOME/src/main.py"
 LOG_OUT="$MIMI_LOGS/mimi.out.log"
 LOG_ERR="$MIMI_LOGS/mimi.err.log"
-PGREP_PAT="python.*main\.py"
+LOCKFILE="/tmp/mimi-assistant.lock"
 
 green()  { printf '\033[0;32m%s\033[0m\n' "$*"; }
 yellow() { printf '\033[0;33m%s\033[0m\n' "$*"; }
 red()    { printf '\033[0;31m%s\033[0m\n' "$*"; }
 
-is_running() { pgrep -f "$PGREP_PAT" >/dev/null 2>&1; }
+is_running() {
+    [[ -f "$LOCKFILE" ]] && kill -0 "$(cat "$LOCKFILE")" 2>/dev/null
+}
 
 cmd_start() {
     if is_running; then
@@ -35,6 +37,7 @@ cmd_start() {
     nohup "$PYTHON" "$MAIN" \
         >> "$LOG_OUT" \
         2>> "$LOG_ERR" &
+    echo $! > "$LOCKFILE"
     disown
     green "MiMi launched — use 'status' or 'logs' to confirm it started."
 }
@@ -42,9 +45,11 @@ cmd_start() {
 cmd_stop() {
     if ! is_running; then
         yellow "MiMi is not running."
+        rm -f "$LOCKFILE"
         return
     fi
-    pkill -f "$PGREP_PAT"
+    kill "$(cat "$LOCKFILE")" 2>/dev/null || true
+    rm -f "$LOCKFILE"
     green "MiMi stopped."
 }
 
@@ -57,7 +62,7 @@ cmd_restart() {
 cmd_status() {
     echo ""
     if is_running; then
-        green "Status: RUNNING  (PID $(pgrep -f "$PGREP_PAT"))"
+        green "Status: RUNNING  (PID $(cat "$LOCKFILE"))"
     else
         yellow "Status: STOPPED"
     fi

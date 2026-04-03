@@ -26,13 +26,16 @@ cat >> "$PROFILE" <<EOF
 $MARKER
 export MIMI_HOME="$MIMI_HOME"
 export MIMI_LOGS="$MIMI_LOGS"
-if ! pgrep -f "python.*main\\.py" >/dev/null 2>&1; then
+_mimi_lock="/tmp/mimi-assistant.lock"
+if ! ([[ -f "\$_mimi_lock" ]] && kill -0 "\$(cat "\$_mimi_lock")" 2>/dev/null); then
     mkdir -p "\$MIMI_LOGS"
     nohup "\$MIMI_HOME/venv/bin/python" "\$MIMI_HOME/src/main.py" \\
         >> "\$MIMI_LOGS/mimi.out.log" \\
         2>> "\$MIMI_LOGS/mimi.err.log" &
+    echo \$! > "\$_mimi_lock"
     disown
 fi
+unset _mimi_lock
 $MARKER_END
 EOF
 
