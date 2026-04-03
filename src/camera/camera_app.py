@@ -9,7 +9,7 @@ def _elapsed():
     return f"{time.time() - _t0:.2f}s"
 
 
-print(f"[MiMi] [camera] Starting up...")
+print("[MiMi] [camera] Starting up...")
 
 import cv2  # noqa: E402
 import mediapipe as mp  # noqa: E402
