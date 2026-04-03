@@ -1,4 +1,3 @@
-# Voice Recognition (Currently Active)
 openwakeword
 pyaudio
 numpy
@@ -6,15 +5,3 @@ colorama
 opencv-python
 mediapipe
 pyautogui
-
-## Just as a note for me ##
-
-# System Actions (Future Implementation)  
-# pyautogui
-# pillow
-
-# Audio Processing (Future Implementation)
-# pydub
-
-# Configuration & Utilities (Future Implementation)
-# pyyaml

@@ -5,12 +5,20 @@ Uses openWakeWord for real-time, low-latency wake word detection
 """
 
 import pyaudio
+import logging
+
+# Suppress openwakeword's expected tflite-not-found notice (onnxruntime is used instead)
+class _TfliteFilter(logging.Filter):
+    def filter(self, record):
+        return 'tflite runtime' not in record.getMessage()
+
+logging.getLogger().addFilter(_TfliteFilter())
+
 import openwakeword
 import time
 import threading
 import numpy as np
 from colorama import Fore, Style
-import logging
 
 class OpenWakeWordActivator:
     def __init__(self, wake_word="hey_mycroft"):
