@@ -169,6 +169,9 @@ cmd_upgrade() {
 
     cmd_stop 2>/dev/null || true
 
+    dim "  Uninstalling current version..."
+    brew uninstall mimi-assistant 2>/dev/null || true
+
     dim "  Removing tap..."
     brew untap youssif/mimi 2>/dev/null || true
 
