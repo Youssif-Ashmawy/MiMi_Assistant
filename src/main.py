@@ -48,7 +48,7 @@ class MiMiAssistant:
                 f"{Fore.RED}Camera script not found: {camera_script}{Style.RESET_ALL}"
             )
             return
-        self.camera_process = subprocess.Popen([sys.executable, camera_script])
+        self.camera_process = subprocess.Popen([sys.executable, "-u", camera_script])
         print(
             f"{Fore.CYAN}📷 Camera process started (pre-warming in background){Style.RESET_ALL}"
         )

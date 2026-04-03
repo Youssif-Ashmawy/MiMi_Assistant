@@ -370,15 +370,9 @@ def draw_legend(frame, any_mouse_mode):
 
 # ─── Main Loop ─────────────────────────────────────────────────────────────
 while True:
-    ret, frame = cap.read()
-    if not ret:
-        print("[MiMi] [camera] Camera read failed. Exiting.")
-        break
-
-    frame = cv2.flip(frame, 1)
     now_s = time.time()
 
-    # ── Hidden mode: wait for activation flag ─────────────────────────────
+    # ── Hidden mode: wait for activation flag (no camera reads needed) ────
     if not _active:
         if os.path.exists(ACTIVATE_FLAG):
             try:
@@ -390,8 +384,15 @@ while True:
             print("[MiMi] [camera] Activated — showing window")
             notify("MiMi Assistant", "Camera is active — gesture control ready")
         else:
-            # Keep camera warm but don't show anything
+            time.sleep(0.05)
             continue
+
+    ret, frame = cap.read()
+    if not ret:
+        print("[MiMi] [camera] Camera read failed. Exiting.")
+        break
+
+    frame = cv2.flip(frame, 1)
 
     # ── Active mode ───────────────────────────────────────────────────────
     if not _model_ready.is_set():
