@@ -44,10 +44,14 @@ class MiMiAssistant:
             print(f"{Fore.YELLOW}Camera is already running!{Style.RESET_ALL}")
             return
 
-        camera_script = os.path.join(os.path.dirname(__file__), "camera", "camera_app.py")
+        camera_script = os.path.join(
+            os.path.dirname(__file__), "camera", "camera_app.py"
+        )
 
         if not os.path.exists(camera_script):
-            print(f"{Fore.RED}Camera script not found: {camera_script}{Style.RESET_ALL}")
+            print(
+                f"{Fore.RED}Camera script not found: {camera_script}{Style.RESET_ALL}"
+            )
             return
 
         self.camera_process = subprocess.Popen(
