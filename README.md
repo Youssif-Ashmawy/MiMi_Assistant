@@ -43,7 +43,7 @@ Say **"Hey Mycroft"** → camera opens → control your Mac with your hands.
 ### Via Homebrew (recommended)
 
 ```bash
-brew tap youssif/mimi https://github.com/youssif/MiMi_Assistant
+brew tap youssif/mimi https://github.com/Youssif-Ashmawy/MiMi_Assistant
 brew install mimi-assistant
 mimi-setup
 ```
@@ -54,7 +54,7 @@ mimi-setup
 ### From source
 
 ```bash
-git clone https://github.com/youssif/MiMi_Assistant.git
+git clone https://github.com/Youssif-Ashmawy/MiMi_Assistant.git
 cd MiMi_Assistant
 ./install.sh
 ```

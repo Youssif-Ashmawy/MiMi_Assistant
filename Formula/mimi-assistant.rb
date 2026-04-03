@@ -1,9 +1,9 @@
 class MimiAssistant < Formula
   desc "Voice-activated gesture recognition assistant for macOS"
-  homepage "https://github.com/youssif/MiMi_Assistant"
+  homepage "https://github.com/Youssif-Ashmawy/MiMi_Assistant"
 
   # Update url + sha256 each release:
-  #   url  → https://github.com/youssif/MiMi_Assistant/archive/refs/tags/vX.Y.Z.tar.gz
+  #   url  → https://github.com/Youssif-Ashmawy/MiMi_Assistant/archive/refs/tags/vX.Y.Z.tar.gz
   #   sha256 → run: curl -sL <url> | shasum -a 256
   url "https://github.com/Youssif-Ashmawy/MiMi_Assistant/archive/refs/tags/v1.0.2.tar.gz"
   sha256 "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5"
