@@ -35,6 +35,19 @@ is_running() {
     [[ -f "$LOCKFILE" ]] && kill -0 "$(cat "$LOCKFILE")" 2>/dev/null
 }
 
+# Kill every MiMi process across all versions, not just the lockfile PID
+kill_all() {
+    # Kill lockfile PID if present
+    if [[ -f "$LOCKFILE" ]]; then
+        kill "$(cat "$LOCKFILE")" 2>/dev/null || true
+        rm -f "$LOCKFILE"
+    fi
+    # Sweep for any remaining python processes running mimi's main.py or camera_app.py
+    pkill -9 -f "mimi-assistant.*main\.py" 2>/dev/null || true
+    pkill -9 -f "mimi-assistant.*camera_app\.py" 2>/dev/null || true
+    pkill -9 -f "Cellar/mimi-assistant" 2>/dev/null || true
+}
+
 cmd_start() {
     if is_running; then
         yellow "MiMi is already running (PID $(cat "$LOCKFILE"))."
@@ -120,13 +133,7 @@ cmd_start() {
 }
 
 cmd_stop() {
-    if ! is_running; then
-        yellow "MiMi is not running."
-        rm -f "$LOCKFILE"
-        return
-    fi
-    kill "$(cat "$LOCKFILE")" 2>/dev/null || true
-    rm -f "$LOCKFILE"
+    kill_all
     green "MiMi stopped."
 }
 
@@ -167,10 +174,10 @@ cmd_upgrade() {
     echo "  Upgrading MiMi Assistant..."
     echo ""
 
-    cmd_stop 2>/dev/null || true
+    kill_all
 
     dim "  Uninstalling current version..."
-    brew uninstall mimi-assistant 2>/dev/null || true
+    brew uninstall --force mimi-assistant 2>/dev/null || true
 
     dim "  Removing tap..."
     brew untap youssif/mimi 2>/dev/null || true
@@ -192,7 +199,7 @@ cmd_uninstall() {
     echo "  Uninstalling MiMi Assistant..."
     echo ""
 
-    cmd_stop 2>/dev/null || true
+    kill_all
 
     # Remove .zprofile block
     if grep -q "$MARKER" "$PROFILE" 2>/dev/null; then
