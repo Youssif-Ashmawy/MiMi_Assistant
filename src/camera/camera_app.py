@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 import time
 
 _t0 = time.time()
@@ -23,29 +24,8 @@ from actions.system_operations import SystemOperations  # noqa: E402
 from mouse.mouse_controller import MouseController  # noqa: E402
 from utils.notifier import notify  # noqa: E402
 
-# ─── MediaPipe Setup ───────────────────────────────────────────────────────
-BaseOptions = mp.tasks.BaseOptions
-GestureRecognizer = mp.tasks.vision.GestureRecognizer
-GestureRecognizerOptions = mp.tasks.vision.GestureRecognizerOptions
-VisionRunningMode = mp.tasks.vision.RunningMode
-
-MODEL_PATH = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-    "models",
-    "gesture_recognizer.task",
-)
-
-print(f"[MiMi] [camera] Loading gesture model ({_elapsed()})")
-options = GestureRecognizerOptions(
-    base_options=BaseOptions(model_asset_path=MODEL_PATH),
-    running_mode=VisionRunningMode.VIDEO,
-    num_hands=2,
-    min_hand_detection_confidence=0.5,
-    min_hand_presence_confidence=0.5,
-    min_tracking_confidence=0.5,
-)
-recognizer = GestureRecognizer.create_from_options(options)
-print(f"[MiMi] [camera] Gesture model loaded ({_elapsed()})")
+# ─── Activation flag — main.py touches this to show the window ────────────
+ACTIVATE_FLAG = "/tmp/mimi-camera-activate"
 
 # ─── System Gesture Config ─────────────────────────────────────────────────
 GESTURE_ACTIONS = {
@@ -79,6 +59,12 @@ GESTURE_ACTIONS = {
         "cooldown": 5.0,
         "label": "Lock Screen",
     },
+    "Pointing_Up": {
+        "action": "switch_display",
+        "hold": 1.5,
+        "cooldown": 2.0,
+        "label": "Switch Display",
+    },
 }
 
 last_action_time = {k: 0.0 for k in GESTURE_ACTIONS}
@@ -107,31 +93,68 @@ mouse_toggle_start = [None] * MAX_HANDS
 mouse_toggle_gesture = "ILoveYou"
 
 HAND_CONNECTIONS = [
-    (0, 1),
-    (1, 2),
-    (2, 3),
-    (3, 4),
-    (0, 5),
-    (5, 6),
-    (6, 7),
-    (7, 8),
-    (0, 9),
-    (9, 10),
-    (10, 11),
-    (11, 12),
-    (0, 13),
-    (13, 14),
-    (14, 15),
-    (15, 16),
-    (0, 17),
-    (17, 18),
-    (18, 19),
-    (19, 20),
-    (5, 9),
-    (9, 13),
-    (13, 17),
+    (0, 1), (1, 2), (2, 3), (3, 4),
+    (0, 5), (5, 6), (6, 7), (7, 8),
+    (0, 9), (9, 10), (10, 11), (11, 12),
+    (0, 13), (13, 14), (14, 15), (15, 16),
+    (0, 17), (17, 18), (18, 19), (19, 20),
+    (5, 9), (9, 13), (13, 17),
 ]
 PALM_LANDMARKS = [0, 5, 9, 13, 17]
+
+# ─── Gesture Model — load in background thread ────────────────────────────
+MODEL_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "models",
+    "gesture_recognizer.task",
+)
+
+recognizer = None
+_model_ready = threading.Event()
+
+
+def _load_model():
+    global recognizer
+    print(f"[MiMi] [camera] Loading gesture model ({_elapsed()})")
+    BaseOptions = mp.tasks.BaseOptions
+    GestureRecognizer = mp.tasks.vision.GestureRecognizer
+    GestureRecognizerOptions = mp.tasks.vision.GestureRecognizerOptions
+    VisionRunningMode = mp.tasks.vision.RunningMode
+
+    options = GestureRecognizerOptions(
+        base_options=BaseOptions(model_asset_path=MODEL_PATH),
+        running_mode=VisionRunningMode.VIDEO,
+        num_hands=2,
+        min_hand_detection_confidence=0.5,
+        min_hand_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+    )
+    recognizer = GestureRecognizer.create_from_options(options)
+    _model_ready.set()
+    print(f"[MiMi] [camera] Camera ready ({_elapsed()})")  # milestone for mimi-ctl
+
+
+threading.Thread(target=_load_model, daemon=True).start()
+
+# ─── Camera Device ─────────────────────────────────────────────────────────
+print(f"[MiMi] [camera] Opening camera device ({_elapsed()})")
+cap = cv2.VideoCapture(0)
+if not cap.isOpened():
+    for idx in [1, 2]:
+        cap = cv2.VideoCapture(idx)
+        if cap.isOpened():
+            print(f"[MiMi] [camera] Opened camera at index {idx}")
+            break
+    else:
+        print("[MiMi] [camera] ERROR: No camera found. Exiting.")
+        sys.exit(1)
+
+print(f"[MiMi] [camera] Camera device open ({_elapsed()})")
+
+messages = []
+INACTIVITY_TIMEOUT_S = 5.0
+last_hand_seen_t = time.time()
+_active = False  # hidden until voice activation
 
 
 # ─── Static Gesture Hold Detection ────────────────────────────────────────
@@ -187,6 +210,7 @@ def dispatch_action(action_name, hand_idx):
         "volume_down": SystemOperations.volume_down,
         "mute_toggle": SystemOperations.mute_toggle,
         "screenshot": SystemOperations.take_screenshot,
+        "switch_display": SystemOperations.switch_display,
     }
     fn = actions.get(action_name)
     if fn:
@@ -328,39 +352,59 @@ def draw_legend(frame, any_mouse_mode):
             )
 
 
-# ─── Camera Setup ──────────────────────────────────────────────────────────
-print(f"[MiMi] [camera] Opening camera device ({_elapsed()})")
-cap = cv2.VideoCapture(0)
-if not cap.isOpened():
-    for idx in [1, 2]:
-        cap = cv2.VideoCapture(idx)
-        if cap.isOpened():
-            print(f"[MiMi] Opened camera at index {idx}")
-            break
-    else:
-        print("[MiMi] ERROR: No camera found. Exiting.")
-        sys.exit(1)
-
-messages = []
-INACTIVITY_TIMEOUT_S = 5.0
-last_hand_seen_t = time.time()
-
-notify("MiMi Assistant", "Camera is active — gesture control ready")
-print(f"[MiMi] [camera] Camera ready — total startup time: {_elapsed()}")
-
 # ─── Main Loop ─────────────────────────────────────────────────────────────
 while True:
     ret, frame = cap.read()
     if not ret:
-        print("[MiMi] Camera read failed. Exiting.")
+        print("[MiMi] [camera] Camera read failed. Exiting.")
         break
 
     frame = cv2.flip(frame, 1)
+    now_s = time.time()
+
+    # ── Hidden mode: wait for activation flag ─────────────────────────────
+    if not _active:
+        if os.path.exists(ACTIVATE_FLAG):
+            try:
+                os.remove(ACTIVATE_FLAG)
+            except OSError:
+                pass
+            _active = True
+            last_hand_seen_t = now_s
+            print("[MiMi] [camera] Activated — showing window")
+            notify("MiMi Assistant", "Camera is active — gesture control ready")
+        else:
+            # Keep camera warm but don't show anything
+            continue
+
+    # ── Active mode ───────────────────────────────────────────────────────
+    if not _model_ready.is_set():
+        # Model still loading — show live feed with loading overlay
+        h, w = frame.shape[:2]
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (0, 0), (w, h), (20, 20, 20), -1)
+        cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+        dots = "." * (int((now_s - _t0) * 2) % 4)
+        cv2.putText(
+            frame,
+            f"Loading gesture model{dots}",
+            (w // 2 - 180, h // 2 - 10),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.85,
+            (0, 200, 255),
+            2,
+            cv2.LINE_AA,
+        )
+        cv2.imshow("MiMi Assistant - Gesture Control", frame)
+        if cv2.waitKey(1) == 27:
+            cv2.destroyAllWindows()
+            _active = False
+        continue
+
     rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
     mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
     timestamp_ms = int(time.time() * 1000)
     recognition_result = recognizer.recognize_for_video(mp_image, timestamp_ms)
-    now_s = time.time()
 
     any_mouse_mode = any(mouse_mode)
 
@@ -518,8 +562,18 @@ while True:
 
     idle_s = now_s - last_hand_seen_t
     if idle_s >= INACTIVITY_TIMEOUT_S:
-        print("[MiMi] No hand detected — closing camera.")
-        break
+        print("[MiMi] [camera] No hand detected — hiding window.")
+        cv2.destroyAllWindows()
+        _active = False
+        # Reset gesture state for next activation
+        for i in range(MAX_HANDS):
+            mouse_mode[i] = False
+            mouse_ctrl[i].reset()
+            gesture_hold_start[i] = None
+            gesture_hold_name[i] = None
+            mouse_toggle_start[i] = None
+        messages.clear()
+        continue
     elif idle_s >= INACTIVITY_TIMEOUT_S - 3:
         remaining = int(INACTIVITY_TIMEOUT_S - idle_s) + 1
         cv2.putText(
@@ -548,8 +602,10 @@ while True:
 
     cv2.imshow("MiMi Assistant - Gesture Control", frame)
     if cv2.waitKey(1) == 27:
-        break
+        cv2.destroyAllWindows()
+        _active = False
 
 cap.release()
 cv2.destroyAllWindows()
-recognizer.close()
+if recognizer:
+    recognizer.close()

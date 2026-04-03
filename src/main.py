@@ -20,6 +20,8 @@ from voice.openwakeword_activator import OpenWakeWordActivator
 # Initialize colorama for cross-platform colored output
 init()
 
+CAMERA_ACTIVATE_FLAG = "/tmp/mimi-camera-activate"
+
 
 class MiMiAssistant:
     def __init__(self):
@@ -36,28 +38,32 @@ class MiMiAssistant:
         print(f"\n{Fore.YELLOW}Shutting down MiMi Assistant...{Style.RESET_ALL}")
         self.stop()
 
-    def on_voice_activation(self):
-        """Callback when voice activation is detected"""
-        print(f"{Fore.GREEN}🎤 MiMi Assistant Activated!{Style.RESET_ALL}")
-
-        if self.camera_process and self.camera_process.poll() is None:
-            print(f"{Fore.YELLOW}Camera is already running!{Style.RESET_ALL}")
-            return
-
+    def _start_camera_process(self):
+        """Launch the camera subprocess."""
         camera_script = os.path.join(
             os.path.dirname(__file__), "camera", "camera_app.py"
         )
-
         if not os.path.exists(camera_script):
             print(
                 f"{Fore.RED}Camera script not found: {camera_script}{Style.RESET_ALL}"
             )
             return
+        self.camera_process = subprocess.Popen([sys.executable, camera_script])
+        print(f"{Fore.CYAN}📷 Camera process started (pre-warming in background){Style.RESET_ALL}")
 
-        self.camera_process = subprocess.Popen(
-            [sys.executable, camera_script],
-        )
-        print(f"{Fore.GREEN}📷 Camera process launched — loading...{Style.RESET_ALL}")
+    def on_voice_activation(self):
+        """Callback when voice activation is detected"""
+        print(f"{Fore.GREEN}🎤 MiMi Assistant Activated!{Style.RESET_ALL}")
+
+        # Restart camera process if it died
+        if self.camera_process is None or self.camera_process.poll() is not None:
+            self._start_camera_process()
+
+        # Signal camera_app to show its window
+        try:
+            open(CAMERA_ACTIVATE_FLAG, "w").close()
+        except Exception as e:
+            print(f"{Fore.RED}Could not signal camera: {e}{Style.RESET_ALL}")
 
     def start(self):
         """Start the MiMi Assistant"""
@@ -76,6 +82,9 @@ class MiMiAssistant:
         # Start voice listening
         self.voice_activator.start_listening()
 
+        # Pre-warm camera and gesture model in background
+        self._start_camera_process()
+
         self.running = True
         print(f"{Fore.GREEN}✅ MiMi Assistant is running!{Style.RESET_ALL}")
         print(
@@ -83,10 +92,15 @@ class MiMiAssistant:
         )
         print(f"{Fore.YELLOW}Press Ctrl+C to stop.{Style.RESET_ALL}")
 
-        # Keep the main thread alive
+        # Keep the main thread alive; restart camera process if it exits unexpectedly
         try:
             while self.running:
-                time.sleep(0.1)
+                if self.camera_process and self.camera_process.poll() is not None:
+                    print(
+                        f"{Fore.YELLOW}Camera process exited — restarting...{Style.RESET_ALL}"
+                    )
+                    self._start_camera_process()
+                time.sleep(1)
         except KeyboardInterrupt:
             self.stop()
 

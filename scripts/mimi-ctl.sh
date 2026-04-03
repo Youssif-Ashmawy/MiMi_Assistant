@@ -84,9 +84,10 @@ cmd_start() {
 
     # ── Milestone flags ───────────────────────────────────────────────────
     local m_oww_loading=false m_models_dl=false m_oww_loaded=false
-    local m_mic_start=false m_mic_ok=false m_ready=false
+    local m_mic_start=false m_mic_ok=false m_mimi_running=false
+    local m_cam_loading=false m_cam_ready=false m_ready=false
 
-    local timeout=90 elapsed=0
+    local timeout=120 elapsed=0
 
     while [[ $elapsed -lt $timeout ]]; do
         if [[ -f "$LOG_OUT" ]]; then
@@ -98,7 +99,7 @@ cmd_start() {
 
             if ! $m_models_dl && grep -q "Models may already exist\|download_models" "$LOG_OUT" 2>/dev/null; then
                 m_models_dl=true
-                _print_milestone "✅" "Models check done" "$start_ts"
+                _print_milestone "✅" "Wake-word models check done" "$start_ts"
             fi
 
             if ! $m_oww_loaded && grep -q "openWakeWord loaded" "$LOG_OUT" 2>/dev/null; then
@@ -116,7 +117,19 @@ cmd_start() {
                 _print_milestone "✅" "Microphone OK" "$start_ts"
             fi
 
-            if grep -q "MiMi Assistant is running" "$LOG_OUT" 2>/dev/null; then
+            if ! $m_mimi_running && grep -q "MiMi Assistant is running" "$LOG_OUT" 2>/dev/null; then
+                m_mimi_running=true
+                _print_milestone "⏳" "Pre-warming gesture model (TFLite)..." "$start_ts"
+            fi
+
+            if ! $m_cam_loading && grep -q "\[camera\] Loading gesture model" "$LOG_OUT" 2>/dev/null; then
+                m_cam_loading=true
+                _print_milestone "⏳" "Loading TFLite gesture model..." "$start_ts"
+            fi
+
+            if ! $m_cam_ready && grep -q "\[camera\] Camera ready" "$LOG_OUT" 2>/dev/null; then
+                m_cam_ready=true
+                _print_milestone "✅" "Gesture model ready" "$start_ts"
                 m_ready=true
                 break
             fi
