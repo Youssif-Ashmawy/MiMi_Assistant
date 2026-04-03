@@ -56,11 +56,8 @@ class MiMiAssistant:
 
         self.camera_process = subprocess.Popen(
             [sys.executable, camera_script],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
         )
-        print(f"{Fore.GREEN}📷 Camera started!{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}📷 Camera process launched — loading...{Style.RESET_ALL}")
 
     def start(self):
         """Start the MiMi Assistant"""

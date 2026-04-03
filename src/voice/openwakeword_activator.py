@@ -48,9 +48,9 @@ class OpenWakeWordActivator:
         # Initialize openWakeWord model with only hey_mycroft
         print(f"{Fore.YELLOW}Loading openWakeWord models...{Style.RESET_ALL}")
 
-        # Download models if not present
+        # Download hey_mycroft model if not present
         try:
-            openwakeword.utils.download_models()
+            openwakeword.utils.download_models(model_names=["hey_mycroft"])
         except Exception as e:
             print(
                 f"{Fore.YELLOW}Models may already exist or download failed: {e}{Style.RESET_ALL}"

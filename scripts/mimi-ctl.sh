@@ -48,6 +48,16 @@ kill_all() {
     pkill -9 -f "Cellar/mimi-assistant" 2>/dev/null || true
 }
 
+_progress_stamp() { date +%s; }
+
+_print_milestone() {
+    local icon="$1" msg="$2" start="$3"
+    local now elapsed
+    now=$(_progress_stamp)
+    elapsed=$(( now - start ))
+    printf '  %s  %-42s %s\n' "$icon" "$msg" "${elapsed}s"
+}
+
 cmd_start() {
     if is_running; then
         yellow "MiMi is already running (PID $(cat "$LOCKFILE"))."
@@ -65,71 +75,77 @@ cmd_start() {
     echo $! > "$LOCKFILE"
     disown
 
-    echo ""
-    echo "  Starting MiMi Assistant..."
-    echo ""
+    local start_ts
+    start_ts=$(_progress_stamp)
 
-    # ── Live startup progress ─────────────────────────────────────────────
-    # Watch log for known milestones and print them as they appear.
-    # Exit once we see the "running" line or a fatal error.
-    local timeout=60
-    local elapsed=0
-    local ready=false
+    printf '\n'
+    printf '  %-48s\n' "Starting MiMi Assistant..."
+    printf '  %s\n' "──────────────────────────────────────────────────"
+
+    # ── Milestone flags ───────────────────────────────────────────────────
+    local m_oww_loading=false m_models_dl=false m_oww_loaded=false
+    local m_mic_start=false m_mic_ok=false m_ready=false
+
+    local timeout=90 elapsed=0
 
     while [[ $elapsed -lt $timeout ]]; do
         if [[ -f "$LOG_OUT" ]]; then
-            # Check for key progress lines in order
-            if grep -q "Loading openWakeWord models" "$LOG_OUT" 2>/dev/null && \
-               ! grep -q "_oww_loading_printed" /tmp/mimi-progress 2>/dev/null; then
-                dim "  ⏳ Loading wake word models..."
-                touch /tmp/mimi-progress-oww 2>/dev/null || true
+
+            if ! $m_oww_loading && grep -q "Loading openWakeWord models" "$LOG_OUT" 2>/dev/null; then
+                m_oww_loading=true
+                _print_milestone "⏳" "Loading wake-word models..." "$start_ts"
             fi
 
-            if grep -q "Microphone test" "$LOG_OUT" 2>/dev/null && \
-               [[ ! -f /tmp/mimi-progress-mic ]]; then
-                dim "  ⏳ Testing microphone..."
-                touch /tmp/mimi-progress-mic 2>/dev/null || true
+            if ! $m_models_dl && grep -q "Models may already exist\|download_models" "$LOG_OUT" 2>/dev/null; then
+                m_models_dl=true
+                _print_milestone "✅" "Models check done" "$start_ts"
             fi
 
-            if grep -q "Microphone test successful" "$LOG_OUT" 2>/dev/null && \
-               [[ ! -f /tmp/mimi-progress-mic-ok ]]; then
-                dim "  ✅ Microphone ready"
-                touch /tmp/mimi-progress-mic-ok 2>/dev/null || true
+            if ! $m_oww_loaded && grep -q "openWakeWord loaded" "$LOG_OUT" 2>/dev/null; then
+                m_oww_loaded=true
+                _print_milestone "✅" "Wake-word model loaded" "$start_ts"
             fi
 
-            if grep -q "openWakeWord loaded" "$LOG_OUT" 2>/dev/null && \
-               [[ ! -f /tmp/mimi-progress-oww-ok ]]; then
-                dim "  ✅ Wake word model loaded"
-                touch /tmp/mimi-progress-oww-ok 2>/dev/null || true
+            if ! $m_mic_start && grep -q "Microphone test\b\|Testing microphone" "$LOG_OUT" 2>/dev/null; then
+                m_mic_start=true
+                _print_milestone "⏳" "Testing microphone..." "$start_ts"
+            fi
+
+            if ! $m_mic_ok && grep -q "Microphone test successful" "$LOG_OUT" 2>/dev/null; then
+                m_mic_ok=true
+                _print_milestone "✅" "Microphone OK" "$start_ts"
             fi
 
             if grep -q "MiMi Assistant is running" "$LOG_OUT" 2>/dev/null; then
-                ready=true
+                m_ready=true
                 break
             fi
         fi
 
-        # Check for crash
         if ! is_running; then
             break
         fi
 
         sleep 1
-        elapsed=$((elapsed + 1))
+        elapsed=$(( elapsed + 1 ))
     done
 
-    rm -f /tmp/mimi-progress-oww /tmp/mimi-progress-mic \
-          /tmp/mimi-progress-mic-ok /tmp/mimi-progress-oww-ok 2>/dev/null || true
+    local total_s=$(( $(_progress_stamp) - start_ts ))
+    printf '  %s\n' "──────────────────────────────────────────────────"
 
-    echo ""
-    if $ready; then
-        green "  MiMi Assistant is ready! Say 'Hey Mycroft' to activate."
+    if $m_ready; then
+        printf '  \033[0;32m%-48s %s\033[0m\n' "Ready! Say 'Hey Mycroft' to activate." "${total_s}s total"
     elif is_running; then
-        yellow "  MiMi is running but took longer than expected — check: mimi-ctl logs"
+        yellow "  Running but slow — check: mimi-ctl logs"
     else
-        red "  MiMi failed to start — check: mimi-ctl logs"
+        red "  Failed to start — check: mimi-ctl logs"
+        if [[ -s "$LOG_ERR" ]]; then
+            echo ""
+            dim "  Last error:"
+            tail -n 5 "$LOG_ERR" | while IFS= read -r line; do dim "    $line"; done
+        fi
     fi
-    echo ""
+    printf '\n'
 }
 
 cmd_stop() {

@@ -2,15 +2,26 @@ import os
 import sys
 import time
 
-import cv2
-import mediapipe as mp
-import numpy as np
+_t0 = time.time()
+
+
+def _elapsed():
+    return f"{time.time() - _t0:.2f}s"
+
+
+print(f"[MiMi] [camera] Starting up...")
+
+import cv2  # noqa: E402
+import mediapipe as mp  # noqa: E402
+import numpy as np  # noqa: E402
+
+print(f"[MiMi] [camera] Modules imported ({_elapsed()})")
 
 # Add src directory to Python path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from actions.system_operations import SystemOperations
-from mouse.mouse_controller import MouseController
-from utils.notifier import notify
+from actions.system_operations import SystemOperations  # noqa: E402
+from mouse.mouse_controller import MouseController  # noqa: E402
+from utils.notifier import notify  # noqa: E402
 
 # ─── MediaPipe Setup ───────────────────────────────────────────────────────
 BaseOptions = mp.tasks.BaseOptions
@@ -24,6 +35,7 @@ MODEL_PATH = os.path.join(
     "gesture_recognizer.task",
 )
 
+print(f"[MiMi] [camera] Loading gesture model ({_elapsed()})")
 options = GestureRecognizerOptions(
     base_options=BaseOptions(model_asset_path=MODEL_PATH),
     running_mode=VisionRunningMode.VIDEO,
@@ -33,6 +45,7 @@ options = GestureRecognizerOptions(
     min_tracking_confidence=0.5,
 )
 recognizer = GestureRecognizer.create_from_options(options)
+print(f"[MiMi] [camera] Gesture model loaded ({_elapsed()})")
 
 # ─── System Gesture Config ─────────────────────────────────────────────────
 GESTURE_ACTIONS = {
@@ -316,6 +329,7 @@ def draw_legend(frame, any_mouse_mode):
 
 
 # ─── Camera Setup ──────────────────────────────────────────────────────────
+print(f"[MiMi] [camera] Opening camera device ({_elapsed()})")
 cap = cv2.VideoCapture(0)
 if not cap.isOpened():
     for idx in [1, 2]:
@@ -332,7 +346,7 @@ INACTIVITY_TIMEOUT_S = 5.0
 last_hand_seen_t = time.time()
 
 notify("MiMi Assistant", "Camera is active — gesture control ready")
-print("[MiMi] Camera ready.")
+print(f"[MiMi] [camera] Camera ready — total startup time: {_elapsed()}")
 
 # ─── Main Loop ─────────────────────────────────────────────────────────────
 while True:
