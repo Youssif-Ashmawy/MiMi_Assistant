@@ -41,7 +41,8 @@ jobs:
           git add version.txt
           git commit -m "chore: bump version to ${{ steps.version.outputs.version }} [skip ci]"
           git tag ${{ steps.version.outputs.tag }}
-          git push origin main --follow-tags
+          git push origin main
+          git push origin ${{ steps.version.outputs.tag }}
 
       - name: Create GitHub Release
         env:
@@ -49,7 +50,8 @@ jobs:
         run: |
           gh release create ${{ steps.version.outputs.tag }} \
             --title "MiMi Assistant ${{ steps.version.outputs.tag }}" \
-            --generate-notes
+            --generate-notes \
+            --target main
 
       - name: Compute sha256 of release tarball
         id: sha256
