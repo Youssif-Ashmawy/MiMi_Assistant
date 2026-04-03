@@ -1,103 +1,122 @@
 # MiMi Assistant
 
-A real-time gesture recognition assistant that activates with voice commands and performs system actions based on hand gestures.
+A macOS desktop assistant that activates on voice command and lets you control your computer through hand gestures — no internet required.
+
+Say **"Hey Mycroft"** → camera opens → control your Mac with your hands.
+
+---
 
 ## Features
 
-- **Local Voice Activation**: Uses openWakeWord for ultra-fast offline wake word detection
-- **Wake Word Detection**: Activated by saying "Hey Mycroft" with high accuracy
-- **Real-time Gesture Recognition**: Uses camera to detect hand gestures
-- **System Actions Examples**:
-  - Fist pump for 3 seconds → Take screenshot
-  - Two hands bye bye for 5 seconds → Logout
-- **Privacy-Focused**: All processing happens locally, no internet required after setup
-- **Extensible**: Easy to add new gestures and actions
+- **Wake word detection** — offline, ~80ms response via [openWakeWord](https://github.com/dscripka/openWakeWord)
+- **Gesture recognition** — real-time hand tracking via MediaPipe
+- **Mouse control** — move cursor, click, right-click, scroll, drag & drop with your hand
+- **System actions** — volume, screenshot, mute, lock screen via gestures
+- **Privacy-first** — all processing runs locally, nothing leaves your machine
+
+### Gesture Reference
+
+| Gesture | Action | Hold |
+|---|---|---|
+| ILoveYou | Toggle mouse mode | 1.2s |
+| Thumb Up | Volume up | 1.2s |
+| Thumb Down | Volume down | 1.2s |
+| Open Palm | Screenshot | 1.5s |
+| Victory | Mute toggle | 1.2s |
+| Closed Fist | Lock screen | 2.0s |
+
+**Mouse mode controls** (active after ILoveYou hold):
+
+| Action | How |
+|---|---|
+| Move cursor | Index fingertip |
+| Left click | Pinch thumb + index |
+| Double click | Pinch thumb + index, hold 1.4s |
+| Right click | Pinch thumb + middle |
+| Scroll | Pointing Up gesture + move |
+| Drag & drop | Hand 1 pinches + Hand 2 Pointing Up |
+
+---
+
+## Install
+
+### Via Homebrew (recommended)
+
+```bash
+brew tap youssif/mimi
+brew install mimi-assistant
+mimi-setup
+```
+
+> **Note:** Terminal must have Microphone permission.
+> System Settings → Privacy & Security → Microphone → Terminal ✓
+
+### From source
+
+```bash
+git clone https://github.com/youssif/MiMi_Assistant.git
+cd MiMi_Assistant
+./install.sh
+```
+
+**Prerequisite:** [Homebrew](https://brew.sh) and PortAudio:
+```bash
+brew install portaudio
+```
+
+---
+
+## Usage
+
+MiMi auto-starts whenever you open a Terminal session (set up by `mimi-setup` / `install.sh`).
+
+```bash
+mimi-ctl start     # start manually
+mimi-ctl stop      # stop
+mimi-ctl restart   # restart after changes
+mimi-ctl status    # is it running? + last log lines
+mimi-ctl logs      # live log tail
+```
+
+---
 
 ## Project Structure
 
 ```
 MiMi_Assistant/
 ├── src/
-│   ├── voice/           # Voice recognition and activation
-│   │   ├── openwakeword_activator.py     # Fast openWakeWord-based activator (CURRENT)
-│   │   └── whisper_voice_activator.py    # Initial Whisper-based activator (Old but kept for reference)
-│   ├── camera/          # Camera capture and processing ~ TO DO
-│   ├── gestures/        # Gesture recognition logic ~ TO DO
-│   ├── actions/         # System action implementations ~ TO DO
-│   ├── utils/           # Utility functions ~ TO DO
-│   └── main.py          # Main application entry point
-├── config/
-│   └── app_config.yaml  # This should be created to ease the modification of any parameter across the application ~ TO DO
-├── tests/               # Test files ~ TO DO
-└── requirements.txt     # Python dependencies
+│   ├── main.py                        # Entry point
+│   ├── voice/
+│   │   └── openwakeword_activator.py  # Wake word detection
+│   ├── camera/
+│   │   └── camera_app.py              # Gesture recognition + actions
+│   ├── mouse/
+│   │   └── mouse_controller.py        # Hand → mouse translation
+│   ├── actions/
+│   │   └── system_operations.py       # Volume, screenshot, lock, etc.
+│   └── utils/
+│       └── notifier.py                # macOS notifications
+├── models/
+│   └── gesture_recognizer.task        # MediaPipe gesture model
+├── scripts/
+│   ├── mimi-ctl.sh                    # Control script
+│   └── mimi-setup.sh                  # Shell profile setup
+├── Formula/
+│   └── mimi-assistant.rb              # Homebrew formula
+├── .github/workflows/
+│   └── ci.yml                         # Lint + format CI
+├── install.sh                         # One-command setup (git clone users)
+└── uninstall.sh                       # Remove MiMi
 ```
 
-## Setup
+---
 
-1. **Install System Dependencies** (required first):
-   - **macOS**: Install PortAudio for PyAudio
-     ```bash
-     brew install portaudio
-     ```
+## CI
 
-2. **Create Virtual Environment**:
-   ```bash
-   python -m venv venv
-   source venv/bin/activate 
-   ```
+Every push runs `ruff` lint and format checks via GitHub Actions.
 
-3. **Install Dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Run the Application**:
-   ```bash
-   source venv/bin/activate
-   cd src
-   python main.py
-   ```
-
-**Note**: The first run will download openWakeWord models (~60MB) for local wake word detection. After this initial download, the application works completely offline with ultra-fast response times.
-
-## Usage
-
-1. Start the application:
-   ```bash
-   source venv/bin/activate
-   cd src
-   python main.py
-   ```
-
-2. The application will:
-   - Test your microphone
-   - Load openWakeWord models (first run only)
-   - Start listening for the wake word
-
-3. Say "Hey Mycroft" to activate the assistant
-   - The system uses openWakeWord for fast wake word detection
-   - Debug output shows what was heard
-
-4. The camera will open and start listening for gestures
-
-5. Perform gestures to trigger actions:
-   - More to be added soon
-
-6. Press Ctrl+C to stop the application
-
-## Development
-
-The project is organized into modular components:
-
-### Voice Recognition
-- **Primary**: openWakeWord for ultra-fast wake word detection
-- **Features**: 80ms response time, high accuracy, minimal CPU usage
-
-### Next Phases
-- Camera and gesture recognition implementation
-- Action execution system
-- Configuration management improvements
+---
 
 ## License
 
-MIT License (For now as it is a private repo)
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
