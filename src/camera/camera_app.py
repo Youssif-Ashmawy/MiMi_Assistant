@@ -147,25 +147,25 @@ def _load_model():
 
 threading.Thread(target=_load_model, daemon=True).start()
 
-# ─── Camera Device ─────────────────────────────────────────────────────────
-print(f"[MiMi] [camera] Opening camera device ({_elapsed()})")
-cap = cv2.VideoCapture(0)
-if not cap.isOpened():
-    for idx in [1, 2]:
-        cap = cv2.VideoCapture(idx)
-        if cap.isOpened():
-            print(f"[MiMi] [camera] Opened camera at index {idx}")
-            break
-    else:
-        print("[MiMi] [camera] ERROR: No camera found. Exiting.")
-        sys.exit(1)
+# ─── Camera helpers ────────────────────────────────────────────────────────
+def _open_camera():
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        for idx in [1, 2]:
+            cap = cv2.VideoCapture(idx)
+            if cap.isOpened():
+                print(f"[MiMi] [camera] Opened camera at index {idx}")
+                return cap
+        print("[MiMi] [camera] ERROR: No camera found.")
+        return None
+    return cap
 
-print(f"[MiMi] [camera] Camera device open ({_elapsed()})")
 
 messages = []
 INACTIVITY_TIMEOUT_S = 5.0
 last_hand_seen_t = time.time()
 _active = False  # hidden until voice activation
+cap = None  # opened only when activated
 
 
 # ─── Static Gesture Hold Detection ────────────────────────────────────────
@@ -379,6 +379,10 @@ while True:
                 os.remove(ACTIVATE_FLAG)
             except OSError:
                 pass
+            cap = _open_camera()
+            if cap is None:
+                time.sleep(1)
+                continue
             _active = True
             last_hand_seen_t = now_s
             print("[MiMi] [camera] Activated — showing window")
@@ -581,6 +585,8 @@ while True:
     if idle_s >= INACTIVITY_TIMEOUT_S:
         print("[MiMi] [camera] No hand detected — hiding window.")
         cv2.destroyAllWindows()
+        cap.release()
+        cap = None
         _active = False
         # Reset gesture state for next activation
         for i in range(MAX_HANDS):
@@ -620,9 +626,13 @@ while True:
     cv2.imshow("MiMi Assistant - Gesture Control", frame)
     if cv2.waitKey(1) == 27:
         cv2.destroyAllWindows()
+        if cap:
+            cap.release()
+            cap = None
         _active = False
 
-cap.release()
+if cap:
+    cap.release()
 cv2.destroyAllWindows()
 if recognizer:
     recognizer.close()
