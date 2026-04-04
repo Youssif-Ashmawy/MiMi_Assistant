@@ -147,6 +147,7 @@ def _load_model():
 
 threading.Thread(target=_load_model, daemon=True).start()
 
+
 # ─── Camera helpers ────────────────────────────────────────────────────────
 def _open_camera():
     cap = cv2.VideoCapture(0)
