@@ -5,8 +5,8 @@ class MimiAssistant < Formula
   # Update url + sha256 each release:
   #   url  → https://github.com/Youssif-Ashmawy/MiMi_Assistant/archive/refs/tags/vX.Y.Z.tar.gz
   #   sha256 → run: curl -sL <url> | shasum -a 256
-  url "https://github.com/Youssif-Ashmawy/MiMi_Assistant/archive/refs/tags/v1.0.16.tar.gz"
-  sha256 "dc92e0078a091091b5a566fabfef772996d846b614ada8e9c902adb3ad8a5d0f"
+  url "https://github.com/Youssif-Ashmawy/MiMi_Assistant/archive/refs/tags/v1.0.17.tar.gz"
+  sha256 "1f06bf9af36f78f095c265055781daf28663dffb77e603a771d5ce9de79e60ed"
   license "Apache-2.0"
 
   depends_on :macos
