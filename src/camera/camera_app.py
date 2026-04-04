@@ -586,6 +586,7 @@ while True:
     if idle_s >= INACTIVITY_TIMEOUT_S:
         print("[MiMi] [camera] No hand detected — hiding window.")
         cv2.destroyAllWindows()
+        cv2.waitKey(1)  # flush macOS GUI event queue so window closes immediately
         cap.release()
         cap = None
         _active = False
@@ -627,6 +628,7 @@ while True:
     cv2.imshow("MiMi Assistant - Gesture Control", frame)
     if cv2.waitKey(1) == 27:
         cv2.destroyAllWindows()
+        cv2.waitKey(1)
         if cap:
             cap.release()
             cap = None
